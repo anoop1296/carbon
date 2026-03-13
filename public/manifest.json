@@ -1,0 +1,25 @@
+{
+    "name":  "Carbon Dashboard",
+    "short_name":  "Carbon",
+    "description":  "Carbon emissions and sequestration dashboard for villages.",
+    "start_url":  "/dashboard",
+    "scope":  "/",
+    "display":  "standalone",
+    "orientation":  "portrait",
+    "background_color":  "#0b1220",
+    "theme_color":  "#0f172a",
+    "icons":  [
+                  {
+                      "src":  "/icons/co2.png",
+                      "sizes":  "512x512",
+                      "type":  "image/png",
+                      "purpose":  "any maskable"
+                  },
+                  {
+                      "src":  "/icons/carbon-dioxide.png",
+                      "sizes":  "192x192",
+                      "type":  "image/png",
+                      "purpose":  "any maskable"
+                  }
+              ]
+}
