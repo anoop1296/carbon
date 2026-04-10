@@ -3,6 +3,11 @@ import type { Metadata, Viewport } from 'next';
 import { Libre_Baskerville, Playfair_Display } from 'next/font/google';
 import './globals.css';
 
+const metadataBase = new URL(
+  process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+);
+
 // Primary serif font (closest elegant match to Times New Roman)
 const libre = Libre_Baskerville({
   subsets: ['latin'],
@@ -21,6 +26,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
+  metadataBase,
   title: {
     default: 'CarbonWatch – Village Carbon Dashboard',
     template: '%s | CarbonWatch',
