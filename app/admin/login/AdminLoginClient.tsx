@@ -75,23 +75,7 @@ export default function AdminLoginClient() {
     <div className="min-h-screen bg-[linear-gradient(160deg,_#f2f8f3_0%,_#ffffff_55%,_#e8f3ee_100%)] px-4 py-12 text-slate-900">
       <div className="mx-auto max-w-5xl">
         <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-          <section className="rounded-[32px] border border-emerald-100 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.18),_transparent_35%),linear-gradient(160deg,_#0f172a_0%,_#1e293b_48%,_#0b3b2e_100%)] p-8 text-white shadow-[0_30px_80px_rgba(15,23,42,0.18)] sm:p-10">
-            <div className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100">
-              Admin Access
-            </div>
-            <h1 className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl">
-              Secure the CSV admin panel with Firebase login
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-200 sm:text-base">
-              This area is for authorized admins only. Your public Vercel-hosted pages stay open, while the admin
-              panel and admin APIs require a valid Firebase session.
-            </p>
-            <div className="mt-8 rounded-[24px] border border-white/10 bg-white/10 p-5 text-sm leading-7 text-slate-100">
-              Use an email and password account from Firebase Authentication. To restrict access even further, add
-              specific admin emails in the `ADMIN_EMAILS` environment variable on Vercel.
-            </div>
-          </section>
-
+         
           <section className="rounded-[32px] border border-emerald-100 bg-white/90 p-8 shadow-[0_30px_80px_rgba(15,23,42,0.08)] sm:p-10">
             <div className="flex items-center justify-between">
               <div>
