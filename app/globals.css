@@ -2,8 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+html,
 body {
-  background-color: #f2f2f3;
+  background-color: #ffffff;
+}
+
+body {
+  min-height: 100vh;
 }
 
 ::-webkit-scrollbar {
@@ -34,8 +39,4 @@ h1, h2, h3, h4, h5, h6 {
 /* Optional: better dark mode transition */
 html {
   scroll-behavior: smooth;
-}
-
-.dark {
-  color-scheme: dark;
 }

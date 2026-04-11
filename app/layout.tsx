@@ -79,12 +79,12 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#f8fafc' },
-    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+    { media: '(prefers-color-scheme: dark)', color: '#ffffff' },
   ],
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  colorScheme: 'light dark',
+  colorScheme: 'light',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -98,9 +98,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`
           ${libre.variable} ${playfair.variable}
-          font-serif bg-gray-50 text-gray-900 antialiased
+          font-serif bg-white text-gray-900 antialiased
           selection:bg-emerald-200 selection:text-emerald-900
-          dark:bg-gray-950 dark:text-gray-100 dark:selection:bg-emerald-800 dark:selection:text-white
         `}
       >
         {children}

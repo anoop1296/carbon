@@ -343,7 +343,6 @@ function HolographicKPICard({
         rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200
         hover:shadow-md hover:-translate-y-0.5 ${tone.ring}
       `}
-      style={{ animationDelay: `${delay}ms` } as React.CSSProperties}
     >
       <div className="flex items-start justify-between">
         <div>
@@ -525,14 +524,14 @@ export default function UltraRealisticDashboard() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-emerald-50/20 relative overflow-hidden">
+    <div className="flex min-h-screen bg-white relative overflow-hidden">
       {/* Global ambient particles */}
       <AmbientParticles color="rgba(117,166,231,0.03)" />
       
       {/* Mobile backdrop */}
       {isMobile && sidebarOpen && (
         <div
-          className="fixed inset-0 bg-gradient-to-br from-slate-950/50 via-slate-900/30 to-emerald-900/20 backdrop-blur-xl z-40 animate-fade-in"
+          className="fixed inset-0 z-40 bg-gradient-to-br from-slate-950/50 via-slate-900/30 to-emerald-900/20 backdrop-blur-xl transition-opacity duration-300"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -549,9 +548,9 @@ export default function UltraRealisticDashboard() {
       />
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
+      <main className="flex-1 flex flex-col min-w-0 relative bg-white">
         {/* Holographic Topbar */}
-        <header className="sticky top-0 z-40 backdrop-blur-3xl bg-white/95 border-b border-slate-200/60 shadow-glow-xl px-4 md:px-10 py-4 md:py-5 flex items-center justify-between relative overflow-hidden">
+        <header className="sticky top-0 z-40 flex items-center justify-between overflow-hidden border-b border-slate-200/60 bg-white/95 px-4 py-4 shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur-xl md:px-10 md:py-5">
           <AmbientParticles color="rgba(255,255,255,0.1)" />
           <div className="flex items-center gap-3 md:gap-5 min-w-0">
             <button
@@ -594,7 +593,7 @@ export default function UltraRealisticDashboard() {
             </button>
             <Link
               href="/"
-              className="group relative inline-flex items-center gap-2 text-sm md:text-lg font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-100/60 hover:bg-emerald-200/80 px-3 md:px-5 py-2 rounded-xl md:rounded-2xl backdrop-blur-xl border border-emerald-200/60 shadow-lg hover:shadow-glow-emerald-xl hover:-translate-y-1 hover:scale-105 transition-all duration-400 transform-3d"
+              className="group relative inline-flex items-center gap-2 rounded-xl border border-emerald-200/60 bg-emerald-100/60 px-3 py-2 text-sm font-bold text-emerald-600 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:scale-105 hover:bg-emerald-200/80 hover:text-emerald-700 hover:shadow-[0_18px_45px_rgba(16,185,129,0.25)] md:rounded-2xl md:px-5 md:text-lg"
             >
               Home
               <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -603,7 +602,7 @@ export default function UltraRealisticDashboard() {
         </header>
 
         {/* Holographic Tab Navigation */}
-        <nav className="sticky top-[72px] md:top-[88px] z-30 backdrop-blur-3xl bg-white/95 border-b border-slate-200/60 px-4 md:px-10 py-3 md:py-4 flex gap-2 md:gap-3 overflow-x-auto shadow-glow-lg relative">
+        <nav className="sticky top-[72px] z-30 relative flex gap-2 overflow-x-auto border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-[0_16px_35px_rgba(15,23,42,0.07)] backdrop-blur-xl md:top-[88px] md:gap-3 md:px-10 md:py-4">
           <AmbientParticles color="rgba(255,255,255,0.05)" />
           {TABS.map((tab, idx) => {
             const isActive = activeTab === tab.id;
@@ -612,17 +611,16 @@ export default function UltraRealisticDashboard() {
                 key={tab.id}
                 className={`
                   relative overflow-hidden px-7 py-3.5 rounded-3xl text-base font-bold whitespace-nowrap transition-all duration-500 ease-out
-                  backdrop-blur-xl shadow-lg hover:shadow-holo-lg transform-3d
+                  backdrop-blur-xl shadow-lg
                   ${isActive 
-                    ? 'bg-gradient-to-r from-emerald-500/15 via-emerald-400/10 to-teal-500/15 text-emerald-800 border-2 border-emerald-300/60 shadow-glow-emerald-xl shadow-emerald-500/25 ring-4 ring-emerald-400/30 scale-105 translate-y-1' 
-                    : 'bg-white/80 border border-slate-200/50 text-slate-700 hover:bg-slate-50/90 hover:text-slate-900 hover:border-emerald-300/50 hover:shadow-glow-emerald-lg hover:scale-105 hover:translate-y-1 hover:rotate-x-5'
+                    ? 'translate-y-1 scale-105 border-2 border-emerald-300/60 bg-gradient-to-r from-emerald-500/15 via-emerald-400/10 to-teal-500/15 text-emerald-800 shadow-[0_0_30px_rgba(16,185,129,0.22)] ring-4 ring-emerald-400/30' 
+                    : 'border border-slate-200/50 bg-white/80 text-slate-700 hover:translate-y-1 hover:scale-105 hover:border-emerald-300/50 hover:bg-slate-50/90 hover:text-slate-900 hover:shadow-[0_0_24px_rgba(16,185,129,0.18)]'
                   }
                 `}
                 onClick={() => {
                   setActiveTab(tab.id);
                   if (isMobile) setSidebarOpen(false);
                 }}
-                style={{ animationDelay: `${idx * 80}ms` } as React.CSSProperties}
               >
                 <div className="relative z-10">{tab.label}</div>
                 {isActive && (
@@ -638,8 +636,8 @@ export default function UltraRealisticDashboard() {
           {loading || villagesLoading ? (
             <div className="h-[70vh] flex flex-col items-center justify-center text-slate-500 gap-8 relative">
               <div className="relative">
-                <div className="w-24 h-24 border-4 border-slate-200/50 border-t-emerald-500/80 rounded-3xl backdrop-blur-xl animate-spin-smooth shadow-2xl shadow-emerald-500/20" />
-                <div className="absolute inset-0 w-24 h-24 border-2 border-emerald-400/30 rounded-3xl animate-ping-slow" />
+                <div className="h-24 w-24 animate-spin rounded-3xl border-4 border-slate-200/50 border-t-emerald-500/80 shadow-2xl shadow-emerald-500/20 backdrop-blur-xl" />
+                <div className="absolute inset-0 h-24 w-24 animate-ping rounded-3xl border-2 border-emerald-400/30" />
               </div>
               <div className="text-2xl font-black bg-gradient-to-r from-slate-700 to-slate-900 bg-clip-text text-transparent drop-shadow-lg">
                 Loading village data...
@@ -686,65 +684,6 @@ export default function UltraRealisticDashboard() {
           )}
         </div>
       </main>
-
-      {/* Ultra-realistic global styles */}
-      <style jsx global>{`
-        @keyframes scan {
-          0% { transform: translateX(-100%) skewX(-12deg); }
-          100% { transform: translateX(100%) skewX(-12deg); }
-        }
-        @keyframes scan-slow {
-          0% { transform: translateX(-100%) skewX(-12deg); }
-          100% { transform: translateX(200%) skewX(-12deg); }
-        }
-        @keyframes float-3d {
-          0%, 100% { transform: translateY(0px) rotateX(0deg) rotateY(0deg); }
-          33% { transform: translateY(-8px) rotateX(2deg) rotateY(-1deg); }
-          66% { transform: translateY(-4px) rotateX(-1deg) rotateY(2deg); }
-        }
-        @keyframes slide-down {
-          from { opacity: 0; transform: translateY(-20px) scale(0.95); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes expand {
-          from { width: 0; }
-          to { width: 6rem; }
-        }
-        @keyframes spin-smooth {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes ping-slow {
-          0% { transform: scale(1); opacity: 1; }
-          75%, 100% { transform: scale(2); opacity: 0; }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.7; }
-        }
-        .shadow-holo-sm { box-shadow: 0 10px 40px rgba(0,0,0,0.1), 0 0 20px rgba(16,185,129,0.1); }
-        .shadow-holo-md { box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 0 30px rgba(16,185,129,0.2); }
-        .shadow-holo-lg { box-shadow: 0 25px 80px rgba(0,0,0,0.2), 0 0 40px rgba(16,185,129,0.3); }
-        .shadow-holo-xl { box-shadow: 0 35px 100px rgba(0,0,0,0.25), 0 0 60px rgba(16,185,129,0.4); }
-        .shadow-holo-2xl { box-shadow: 0 50px 150px rgba(0,0,0,0.3), 0 0 80px rgba(16,185,129,0.5); }
-        .shadow-glow { box-shadow: 0 0 12px rgb(57, 5, 82); }
-        .shadow-glow-emerald { box-shadow: 0 0 20px rgba(16,185,129,0.3); }
-        .shadow-glow-emerald-sm { box-shadow: 0 0 12px rgba(16,185,129,0.2); }
-        .shadow-glow-emerald-lg { box-shadow: 0 0 30px rgba(16,185,129,0.4); }
-        .shadow-glow-slate-md { box-shadow: 0 0 15px rgba(148,163,184,0.3); }
-        .transform-3d { transform-style: preserve-3d; }
-        .perspective-1000 { perspective: 1000px; }
-        .rotate-x-5 { transform: rotateX(5deg); }
-        .rotate-y-180 { transform: rotateY(180deg); }
-        .animate-float-3d { animation: float-3d 8s ease-in-out infinite; }
-        .animate-scan { animation: scan 3s linear infinite; }
-        .animate-scan-slow { animation: scan-slow 4s linear infinite; }
-        .animate-slide-down { animation: slide-down 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
-        .animate-expand { animation: expand 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        .animate-spin-smooth { animation: spin-smooth 2s linear infinite; }
-        .animate-ping-slow { animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite; }
-        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-      `}</style>
     </div>
   );
 }

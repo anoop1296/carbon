@@ -1,6 +1,7 @@
 'use client';
+
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
@@ -14,16 +15,26 @@ export interface ReductionRow {
   annual_co2_reduction_kg: string;
 }
 
-const SECTOR_COLORS: Record<string, string> = {
-  Residential: '#ff7b4d',
-  Energy: '#ffd24d',
-  Transport: '#4d9fff',
-  Agriculture: '#00e676',
-  Waste: '#b084ff',
-  Livestock: '#ff6eb4',
+type Tone = 'orange' | 'amber' | 'blue' | 'emerald' | 'violet' | 'pink' | 'slate';
+
+const SECTOR_META: Record<string, { tone: Tone; color: string }> = {
+  Residential: { tone: 'orange', color: '#f97316' },
+  Energy: { tone: 'amber', color: '#f59e0b' },
+  Transport: { tone: 'blue', color: '#3b82f6' },
+  Agriculture: { tone: 'emerald', color: '#10b981' },
+  Waste: { tone: 'violet', color: '#8b5cf6' },
+  Livestock: { tone: 'pink', color: '#ec4899' },
 };
 
-const LABEL_COLOR = '#334155';
+const TONE_CLASSES: Record<Tone, { pill: string; card: string; text: string }> = {
+  orange: { pill: 'bg-orange-100 text-orange-700', card: 'bg-orange-50 border-orange-200', text: 'text-orange-600' },
+  amber: { pill: 'bg-amber-100 text-amber-700', card: 'bg-amber-50 border-amber-200', text: 'text-amber-600' },
+  blue: { pill: 'bg-blue-100 text-blue-700', card: 'bg-blue-50 border-blue-200', text: 'text-blue-600' },
+  emerald: { pill: 'bg-emerald-100 text-emerald-700', card: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-600' },
+  violet: { pill: 'bg-violet-100 text-violet-700', card: 'bg-violet-50 border-violet-200', text: 'text-violet-600' },
+  pink: { pill: 'bg-pink-100 text-pink-700', card: 'bg-pink-50 border-pink-200', text: 'text-pink-600' },
+  slate: { pill: 'bg-slate-100 text-slate-700', card: 'bg-slate-50 border-slate-200', text: 'text-slate-600' },
+};
 
 function toNum(v: string): number {
   const n = parseFloat(v || '0');
@@ -31,13 +42,12 @@ function toNum(v: string): number {
 }
 
 function shortLabel(text: string, limit = 18): string {
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
 export default function InterventionReductions({ rows }: { rows: ReductionRow[] | null | undefined }) {
   const [isNarrow, setIsNarrow] = useState(false);
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
-  const [activeBar, setActiveBar] = useState<string | null>(null);
 
   useEffect(() => {
     const onResize = () => setIsNarrow(window.innerWidth < 640);
@@ -46,52 +56,40 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  if (!rows || rows.length === 0) {
+  const items = useMemo(() => (rows || []).filter((row) => row.sector || row.intervention), [rows]);
+
+  if (items.length === 0) {
     return (
-      <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 260 }}>
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: 14 }}>No intervention data available</div>
-        </div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+        No intervention data available
       </div>
     );
   }
 
-  const items = rows.filter((r) => r.sector || r.intervention);
-  if (items.length === 0) return null;
-
-  const totalTons = items.reduce((sum, r) => sum + toNum(r.annual_co2_reduction_kg) / 1000, 0);
-
-  // Unique sectors
-  const sectors = Array.from(new Set(items.map((r) => r.sector))).filter(Boolean);
-
-  const filtered = selectedSector ? items.filter((r) => r.sector === selectedSector) : items;
-
-  // Bar chart data — only annual CO2 reduction
-  const labels = filtered.map((r) => shortLabel(r.intervention || 'Unknown', isNarrow ? 12 : 18));
-  const annualTons = filtered.map((r) => toNum(r.annual_co2_reduction_kg) / 1000);
-  const barColors = filtered.map((r) => {
-    const c = SECTOR_COLORS[r.sector] || '#8b9ab0';
-    return `${c}cc`;
-  });
-  const barBorderColors = filtered.map((r) => SECTOR_COLORS[r.sector] || '#8b9ab0');
+  const totalTons = items.reduce((sum, row) => sum + toNum(row.annual_co2_reduction_kg) / 1000, 0);
+  const sectors = Array.from(new Set(items.map((row) => row.sector))).filter(Boolean);
+  const filtered = selectedSector ? items.filter((row) => row.sector === selectedSector) : items;
 
   const data = [
     {
-      x: labels,
-      y: annualTons,
+      x: filtered.map((row) => shortLabel(row.intervention || 'Unknown', isNarrow ? 12 : 18)),
+      y: filtered.map((row) => toNum(row.annual_co2_reduction_kg) / 1000),
       type: 'bar',
-      name: 'Annual CO₂ Reduction',
+      name: 'Annual CO2 Reduction',
       marker: {
-        color: barColors,
-        line: { color: barBorderColors, width: 1.5 },
+        color: filtered.map((row) => SECTOR_META[row.sector]?.color || '#94a3b8'),
+        line: {
+          color: filtered.map((row) => SECTOR_META[row.sector]?.color || '#94a3b8'),
+          width: 1.5,
+        },
       },
-      hovertemplate: '<b>%{x}</b><br>CO₂ Reduction: <b>%{y:.3f} t/yr</b><extra></extra>',
+      hovertemplate: '<b>%{x}</b><br>CO2 Reduction: <b>%{y:.3f} t/yr</b><extra></extra>',
     },
   ];
 
   const layout = {
     paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(255,255,255,0.015)',
+    plot_bgcolor: 'rgba(248,250,252,1)',
     margin: { l: isNarrow ? 48 : 62, r: 16, t: 16, b: isNarrow ? 90 : 100 },
     bargap: 0.32,
     hovermode: 'closest',
@@ -99,20 +97,20 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
     xaxis: {
       tickangle: -30,
       automargin: true,
-      tickfont: { color: LABEL_COLOR, size: isNarrow ? 9 : 11, family: 'JetBrains Mono, monospace' },
-      gridcolor: 'rgba(255,255,255,0.04)',
-      linecolor: 'rgba(255,255,255,0.12)',
-      tickcolor: 'rgba(255,255,255,0.1)',
+      tickfont: { color: '#475569', size: isNarrow ? 9 : 11, family: 'system-ui, sans-serif' },
+      gridcolor: '#e2e8f0',
+      linecolor: '#cbd5e1',
+      tickcolor: '#cbd5e1',
     },
     yaxis: {
-      title: { text: 'CO₂ Reduction (t/yr)', font: { color: LABEL_COLOR, size: isNarrow ? 10 : 12 } },
-      tickfont: { color: LABEL_COLOR, size: isNarrow ? 9 : 11, family: 'JetBrains Mono, monospace' },
-      gridcolor: 'rgba(255,255,255,0.07)',
+      title: { text: 'CO2 Reduction (t/yr)', font: { color: '#475569', size: isNarrow ? 10 : 12 } },
+      tickfont: { color: '#475569', size: isNarrow ? 9 : 11, family: 'system-ui, sans-serif' },
+      gridcolor: '#e2e8f0',
       zeroline: true,
-      zerolinecolor: 'rgba(255,255,255,0.15)',
-      linecolor: 'rgba(255,255,255,0.12)',
+      zerolinecolor: '#cbd5e1',
+      linecolor: '#cbd5e1',
     },
-    font: { color: '#dce6f2', family: 'Syne, sans-serif' },
+    font: { color: '#0f172a', family: 'system-ui, sans-serif' },
     autosize: true,
   };
 
@@ -124,154 +122,117 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
   };
 
   return (
-    <div className="card fade-up">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+      <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
         <div>
-          <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0, fontFamily: 'Syne, sans-serif' }}>
-            Intervention Reductions
-          </h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', letterSpacing: '0.03em' }}>
-            Annual CO₂ savings per intervention
-          </p>
+          <h3 className="text-lg font-bold text-slate-900">Intervention Reductions</h3>
+          <p className="mt-1 text-sm text-slate-500">Annual CO2 savings per intervention</p>
         </div>
-        <div style={{
-          background: 'rgba(0,230,118,0.08)',
-          border: '1px solid rgba(0,230,118,0.2)',
-          borderRadius: 12,
-          padding: '8px 14px',
-          textAlign: 'center',
-          flexShrink: 0,
-        }}>
-          <div style={{ fontSize: 10, color: '#00e676', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total Saved</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#00e676', fontFamily: 'Syne, sans-serif', lineHeight: 1.1 }}>
-            {totalTons.toFixed(1)}t
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600">
+            Total Saved
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>CO₂e / yr</div>
+          <div className="mt-1 text-2xl font-bold text-emerald-700">{totalTons.toFixed(1)} t</div>
+          <div className="text-xs text-emerald-500">CO2e / yr</div>
         </div>
       </div>
 
-      {/* Sector filter pills */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+      <div className="mt-4 flex flex-wrap gap-2">
         <button
+          type="button"
           onClick={() => setSelectedSector(null)}
-          style={{
-            fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 99,
-            border: `1px solid ${!selectedSector ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)'}`,
-            background: !selectedSector ? 'rgba(255,255,255,0.08)' : 'transparent',
-            color: !selectedSector ? '#f0f6ff' : LABEL_COLOR,
-            cursor: 'pointer', transition: 'all 0.18s',
-          }}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+            !selectedSector
+              ? 'bg-slate-900 text-white'
+              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
         >
           All
         </button>
-        {sectors.map((s) => {
-          const color = SECTOR_COLORS[s] || '#8b9ab0';
-          const isActive = selectedSector === s;
+        {sectors.map((sector) => {
+          const tone = TONE_CLASSES[SECTOR_META[sector]?.tone || 'slate'];
+          const isActive = selectedSector === sector;
           return (
             <button
-              key={s}
-              onClick={() => setSelectedSector(isActive ? null : s)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 99,
-                border: `1px solid ${isActive ? color : 'rgba(255,255,255,0.08)'}`,
-                background: isActive ? `${color}22` : 'transparent',
-                color: isActive ? color : LABEL_COLOR,
-                cursor: 'pointer', transition: 'all 0.18s',
-              }}
+              key={sector}
+              type="button"
+              onClick={() => setSelectedSector(isActive ? null : sector)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                isActive ? tone.card : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
             >
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
-              {s}
+              {sector}
             </button>
           );
         })}
       </div>
 
-      {/* Bar chart — only annual CO2 reduction */}
-      <div style={{
-        width: '100%',
-        minHeight: isNarrow ? 300 : 360,
-        borderRadius: 12,
-        border: '1px solid rgba(255,255,255,0.07)',
-        padding: 6,
-        background: 'rgba(255,255,255,0.01)',
-        marginBottom: 20,
-      }}>
+      <div className="mt-5 min-h-[300px] rounded-2xl border border-slate-200 bg-slate-50 p-2 md:min-h-[360px]">
         <Plot
           data={data as never[]}
           layout={layout as never}
           config={config as never}
-          style={{ width: '100%', height: '100%', minHeight: isNarrow ? 290 : 350 }}
+          className="h-full w-full"
           useResizeHandler
         />
       </div>
 
-      {/* Intervention detail cards — activity reduction + emission factor */}
-      <div>
-        <div style={{ fontSize: 11, color: LABEL_COLOR, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+      <div className="mt-5">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
           Intervention Details
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {filtered.map((r, i) => {
-            const color = SECTOR_COLORS[r.sector] || '#8b9ab0';
-            const tons = toNum(r.annual_co2_reduction_kg) / 1000;
-            const actRed = toNum(r.activity_reduction);
-            const ef = toNum(r.emission_factor);
+        <div className="mt-3 space-y-3">
+          {filtered.map((row, index) => {
+            const tone = TONE_CLASSES[SECTOR_META[row.sector]?.tone || 'slate'];
             return (
               <div
-                key={i}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: isNarrow ? '1fr' : '1fr auto auto auto',
-                  alignItems: 'center',
-                  gap: isNarrow ? 6 : 12,
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: `1px solid rgba(255,255,255,0.05)`,
-                  background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.01)',
-                  transition: 'background 0.15s',
-                }}
+                key={`${row.intervention}-${index}`}
+                className={`rounded-xl border p-4 ${tone.card}`}
               >
-                {/* Name + sector */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <div style={{ width: 3, height: 32, borderRadius: 99, background: color, flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {r.intervention || '—'}
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">
+                      {row.intervention || '-'}
                     </div>
-                    <div style={{ fontSize: 11, color, fontWeight: 600, marginTop: 1 }}>{r.sector}</div>
+                    <div
+                      className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${tone.pill}`}
+                    >
+                      {row.sector}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        CO2 Saved
+                      </div>
+                      <div className={`mt-1 text-sm font-bold ${tone.text}`}>
+                        {(toNum(row.annual_co2_reduction_kg) / 1000).toFixed(3)} t
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Activity Delta
+                      </div>
+                      <div className="mt-1 text-sm font-bold text-slate-900">
+                        {toNum(row.activity_reduction).toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Emission Factor
+                      </div>
+                      <div className="mt-1 text-sm font-bold text-slate-900">
+                        {toNum(row.emission_factor).toFixed(4)}
+                      </div>
+                    </div>
                   </div>
                 </div>
-
-                {/* Annual CO2 */}
-                <div style={{ textAlign: isNarrow ? 'left' : 'center', paddingLeft: isNarrow ? 11 : 0 }}>
-                  <div style={{ fontSize: 10, color: LABEL_COLOR, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>CO₂ Saved</div>
-                  <div style={{ fontSize: 14, color: '#00e676', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
-                    {tons.toFixed(3)}t
-                  </div>
-                </div>
-
-                {/* Activity reduction */}
-                <div style={{ textAlign: isNarrow ? 'left' : 'center', paddingLeft: isNarrow ? 11 : 0 }}>
-                  <div style={{ fontSize: 10, color: LABEL_COLOR, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Activity Δ</div>
-                  <div style={{ fontSize: 14, color: '#4d9fff', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
-                    {actRed.toFixed(2)}
-                  </div>
-                </div>
-
-                {/* Emission factor
-                <div style={{ textAlign: isNarrow ? 'left' : 'center', paddingLeft: isNarrow ? 11 : 0 }}>
-                  <div style={{ fontSize: 10, color: LABEL_COLOR, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>EF</div>
-                  <div style={{ fontSize: 14, color: '#ffd24d', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }}>
-                    {ef.toFixed(4)}
-                  </div>
-                </div> */}
               </div>
             );
           })}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

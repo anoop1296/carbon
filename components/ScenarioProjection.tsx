@@ -1,4 +1,5 @@
 'use client';
+
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
 
@@ -12,7 +13,6 @@ export interface ScenarioRow {
   line_of_sight: string;
   accelerated: string;
 }
-const LABEL_DARK = '#6b0f1a';
 
 function toNum(v: string): number {
   const n = parseFloat(v || '0');
@@ -21,6 +21,7 @@ function toNum(v: string): number {
 
 export default function ScenarioProjection({ rows }: { rows: ScenarioRow[] | null | undefined }) {
   const [isNarrow, setIsNarrow] = useState(false);
+
   useEffect(() => {
     const onResize = () => setIsNarrow(window.innerWidth < 640);
     onResize();
@@ -30,18 +31,22 @@ export default function ScenarioProjection({ rows }: { rows: ScenarioRow[] | nul
 
   if (!rows || rows.length === 0) {
     return (
-      <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280 }}>
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>No scenario data available</div>
-        </div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+        No scenario data available
       </div>
     );
   }
 
-  const years = rows.map((r) => r.year);
-  const bau = rows.map((r) => toNum(r.business_as_usual) / 1000);
-  const los = rows.map((r) => toNum(r.line_of_sight) / 1000);
-  const acc = rows.map((r) => toNum(r.accelerated) / 1000);
+  const years = rows.map((row) => row.year);
+  const bau = rows.map((row) => toNum(row.business_as_usual) / 1000);
+  const los = rows.map((row) => toNum(row.line_of_sight) / 1000);
+  const acc = rows.map((row) => toNum(row.accelerated) / 1000);
+  const finalIndex = Math.max(years.length - 1, 0);
+  const finalYear = years[finalIndex];
+  const bauFinal = bau[finalIndex] || 0;
+  const losFinal = los[finalIndex] || 0;
+  const accFinal = acc[finalIndex] || 0;
+  const bestDrop = bauFinal - accFinal;
 
   const data = [
     {
@@ -50,8 +55,8 @@ export default function ScenarioProjection({ rows }: { rows: ScenarioRow[] | nul
       type: 'scatter',
       mode: 'lines+markers',
       name: 'Business as Usual',
-      line: { color: '#ff4d4d', width: 3 },
-      marker: { size: 7, color: '#ff4d4d' },
+      line: { color: '#ef4444', width: 3 },
+      marker: { size: 7, color: '#ef4444' },
       hovertemplate: 'Year: %{x}<br>BAU: %{y:.2f} t<extra></extra>',
     },
     {
@@ -60,8 +65,8 @@ export default function ScenarioProjection({ rows }: { rows: ScenarioRow[] | nul
       type: 'scatter',
       mode: 'lines+markers',
       name: 'Line of Sight',
-      line: { color: '#ffb84d', width: 3, dash: 'dash' },
-      marker: { size: 7, color: '#ffb84d' },
+      line: { color: '#f59e0b', width: 3, dash: 'dash' },
+      marker: { size: 7, color: '#f59e0b' },
       hovertemplate: 'Year: %{x}<br>LoS: %{y:.2f} t<extra></extra>',
     },
     {
@@ -70,77 +75,90 @@ export default function ScenarioProjection({ rows }: { rows: ScenarioRow[] | nul
       type: 'scatter',
       mode: 'lines+markers',
       name: 'Accelerated',
-      line: { color: '#00e676', width: 3, dash: 'dot' },
-      marker: { size: 7, color: '#00e676' },
+      line: { color: '#10b981', width: 3, dash: 'dot' },
+      marker: { size: 7, color: '#10b981' },
       hovertemplate: 'Year: %{x}<br>ACC: %{y:.2f} t<extra></extra>',
     },
   ];
 
   const layout = {
     paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(255,255,255,0.02)',
-    margin: { l: isNarrow ? 44 : 68, r: isNarrow ? 12 : 24, t: 20, b: isNarrow ? 48 : 58 },
+    plot_bgcolor: '#ffffff',
+    margin: { l: isNarrow ? 44 : 68, r: isNarrow ? 16 : 28, t: isNarrow ? 34 : 22, b: isNarrow ? 52 : 60 },
     hovermode: 'x unified',
     legend: {
       orientation: 'h',
       x: 0,
-      y: isNarrow ? 1.22 : 1.16,
-      font: { color: LABEL_DARK, size: isNarrow ? 10 : 12 },
+      xanchor: 'left',
+      y: isNarrow ? 1.12 : 1.1,
+      font: { color: '#475569', size: isNarrow ? 10 : 12 },
     },
     xaxis: {
-      title: { text: 'Year', font: { color: LABEL_DARK, size: isNarrow ? 11 : 13 } },
-      tickfont: { color: LABEL_DARK, size: isNarrow ? 10 : 12 },
-      gridcolor: 'rgba(255,255,255,0.08)',
+      title: { text: 'Year', font: { color: '#475569', size: isNarrow ? 11 : 13 } },
+      tickfont: { color: '#475569', size: isNarrow ? 10 : 12 },
+      gridcolor: '#e2e8f0',
       zeroline: false,
-      linecolor: 'rgba(255,255,255,0.2)',
+      linecolor: '#cbd5e1',
     },
     yaxis: {
-      title: { text: 'CO2e (tons/year)', font: { color: LABEL_DARK, size: isNarrow ? 11 : 13 } },
-      tickfont: { color: LABEL_DARK, size: isNarrow ? 10 : 12 },
-      gridcolor: 'rgba(255,255,255,0.08)',
+      title: { text: 'CO2e (tons/year)', font: { color: '#475569', size: isNarrow ? 11 : 13 } },
+      tickfont: { color: '#475569', size: isNarrow ? 10 : 12 },
+      gridcolor: '#e2e8f0',
       zeroline: false,
-      linecolor: 'rgba(255,255,255,0.2)',
+      linecolor: '#cbd5e1',
     },
-    font: { color: '#dce6f2', family: 'Space Grotesk, sans-serif' },
+    font: { color: '#0f172a', family: 'system-ui, sans-serif' },
     autosize: true,
   };
 
   const config = {
     responsive: true,
-    displayModeBar: true,
+    displayModeBar: false,
     displaylogo: false,
-    modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d'],
   };
 
   return (
-    <div className="card fade-up">
-      <div style={{ marginBottom: 14 }}>
-        <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0, fontFamily: 'Syne, sans-serif' }}>
-          Scenario Projection
-        </h3>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0', letterSpacing: '0.03em' }}>
-          Simple line graph with X-axis, Y-axis and Plotly toolbar
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+      <div className="mb-4">
+        <h3 className="text-lg font-bold text-slate-900">Scenario Projection</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Year-wise comparison across baseline and intervention pathways
         </p>
       </div>
 
-      <div
-        style={{
-          width: '100%',
-          minHeight: isNarrow ? 320 : 380,
-          borderRadius: 12,
-          border: '1px solid rgba(255,255,255,0.08)',
-          padding: 6,
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))',
-        }}
-      >
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-red-600">
+            BAU {finalYear}
+          </div>
+          <div className="mt-1 text-xl font-bold text-red-700">{bauFinal.toFixed(2)} t</div>
+          <div className="text-xs text-red-500">business as usual</div>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">
+            LOS {finalYear}
+          </div>
+          <div className="mt-1 text-xl font-bold text-amber-700">{losFinal.toFixed(2)} t</div>
+          <div className="text-xs text-amber-500">line of sight</div>
+        </div>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-600">
+            Best Drop
+          </div>
+          <div className="mt-1 text-xl font-bold text-emerald-700">{bestDrop.toFixed(2)} t</div>
+          <div className="text-xs text-emerald-500">BAU vs accelerated</div>
+        </div>
+      </div>
+
+      <div className="min-h-[320px] rounded-2xl border border-slate-200 bg-white p-3 md:min-h-[380px] md:p-4">
         <Plot
           data={data as never[]}
           layout={layout as never}
           config={config as never}
-          style={{ width: '100%', height: '100%' }}
+          className="h-full w-full"
           useResizeHandler
         />
       </div>
-    </div>
+    </section>
   );
 }
