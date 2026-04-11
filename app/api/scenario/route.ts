@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const vlcode = searchParams.get('vlcode') || '';
 
-    const rows = parseCSV('Scenario_Projection_Wide.csv');
+    const rows = await parseCSV('Scenario_Projection_Wide.csv');
     const filtered = vlcode ? rows.filter(r => r.vlcode === vlcode) : rows;
 
     // Collect all years from column names

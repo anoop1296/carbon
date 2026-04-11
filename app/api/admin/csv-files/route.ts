@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     await getAdminSession();
-    const files = listCSVFiles();
+    const files = await listCSVFiles();
     return NextResponse.json({ success: true, files });
   } catch (error) {
     if (isAdminAuthError(error)) {

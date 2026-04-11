@@ -56,8 +56,10 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const vlcode = searchParams.get('vlcode') || '';
 
-    const beforeRaw = parseCSV('Carbon_Budget_Before_Wide.csv');
-    const afterRaw  = parseCSV('Carbon_Budget_After_Wide.csv');
+    const [beforeRaw, afterRaw] = await Promise.all([
+      parseCSV('Carbon_Budget_Before_Wide.csv'),
+      parseCSV('Carbon_Budget_After_Wide.csv'),
+    ]);
 
     const before = wideToParams(beforeRaw, BEFORE_MAP, vlcode);
     const after  = wideToParams(afterRaw,  AFTER_MAP,  vlcode);

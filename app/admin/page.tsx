@@ -434,8 +434,9 @@ export default function AdminPage() {
                 Manage dashboard CSV data directly
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-                Upload a new CSV, replace an existing one, add new rows, or update rows already stored in
-                <span className="font-semibold text-emerald-700"> public/Clean2</span>.
+                Upload a new CSV, replace an existing one, add rows, or update existing dashboard data. Local
+                development reads from <span className="font-semibold text-emerald-700">public/Clean2</span>, while
+                deployed updates are persisted in cloud storage.
               </p>
             </div>
 
@@ -457,7 +458,7 @@ export default function AdminPage() {
                 href="/dashboard"
                 className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
               >
-                Open Dashboard
+                 Dashboard
               </Link>
               <Link
                 href="/"

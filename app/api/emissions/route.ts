@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const vlcode = searchParams.get('vlcode') || '';
 
-    const rows = parseCSV('Annual_Emissions_Wide.csv');
+    const rows = await parseCSV('Annual_Emissions_Wide.csv');
     const filtered = vlcode ? rows.filter(r => r.vlcode === vlcode) : rows;
 
     // Unpivot: each non-identity column is "Sector_Activity"

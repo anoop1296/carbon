@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
     const filename = typeof requestedName === 'string' && requestedName.trim() ? requestedName : file.name;
     const content = await file.text();
-    const csv = replaceCSV(filename, content);
+    const csv = await replaceCSV(filename, content);
 
     return NextResponse.json({
       success: true,

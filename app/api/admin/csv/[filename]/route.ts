@@ -15,7 +15,7 @@ export async function GET(_: Request, { params }: RouteContext) {
   try {
     await getAdminSession();
     const decodedFilename = decodeURIComponent(params.filename);
-    const csv = readCSV(decodedFilename);
+    const csv = await readCSV(decodedFilename);
 
     return NextResponse.json({
       success: true,
@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'A row object is required.' }, { status: 400 });
     }
 
-    const csv = appendCSVRow(decodedFilename, row);
+    const csv = await appendCSVRow(decodedFilename, row);
     return NextResponse.json({
       success: true,
       filename: csv.filename,
@@ -82,7 +82,7 @@ export async function PUT(req: Request, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'A row object is required.' }, { status: 400 });
     }
 
-    const csv = updateCSVRow(decodedFilename, rowIndex, row);
+    const csv = await updateCSVRow(decodedFilename, rowIndex, row);
     return NextResponse.json({
       success: true,
       filename: csv.filename,

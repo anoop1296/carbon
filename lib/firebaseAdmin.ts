@@ -1,4 +1,5 @@
 import { App, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
+import { Firestore, getFirestore } from 'firebase-admin/firestore';
 
 function readRequiredEnv(name: string) {
   const value = process.env[name];
@@ -6,6 +7,12 @@ function readRequiredEnv(name: string) {
     throw new Error(`Missing Firebase admin environment variable: ${name}`);
   }
   return value;
+}
+
+export function isFirebaseAdminConfigured() {
+  return ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'].every((name) =>
+    Boolean(process.env[name])
+  );
 }
 
 export function getFirebaseAdminApp(): App {
@@ -20,4 +27,8 @@ export function getFirebaseAdminApp(): App {
       privateKey: readRequiredEnv('FIREBASE_PRIVATE_KEY').replace(/\\n/g, '\n'),
     }),
   });
+}
+
+export function getFirebaseAdminDb(): Firestore {
+  return getFirestore(getFirebaseAdminApp());
 }

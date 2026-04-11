@@ -67,7 +67,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const vlcode = searchParams.get('vlcode') || '';
 
-    const rows = parseCSV('Carbon_Reduction_After_Wide.csv');
+    const rows = await parseCSV('Carbon_Reduction_After_Wide.csv');
     const filtered = vlcode ? rows.filter(r => r.vlcode === vlcode) : rows;
 
     const data: Record<string, string>[] = [];

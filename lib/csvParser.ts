@@ -1,11 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 
+import { getFirebaseAdminDb, isFirebaseAdminConfigured } from '@/lib/firebaseAdmin';
+
 export type CsvRow = Record<string, string>;
 
 export const DATA_DIR = path.join(process.cwd(), 'public', 'Clean2');
+const CSV_COLLECTION = 'csvFiles';
 
-function ensureDataDir() {
+function ensureLocalDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
@@ -29,8 +32,25 @@ function normalizeFilename(filename: string): string {
 }
 
 export function resolveCSVPath(filename: string): string {
-  ensureDataDir();
   return path.join(DATA_DIR, normalizeFilename(filename));
+}
+
+function shouldUseFirestoreStorage() {
+  const backend = process.env.CSV_STORAGE_BACKEND?.trim().toLowerCase();
+
+  if (backend === 'filesystem') {
+    return false;
+  }
+
+  if (backend === 'firestore') {
+    return true;
+  }
+
+  return process.env.VERCEL === '1';
+}
+
+function getCsvCollection() {
+  return getFirebaseAdminDb().collection(CSV_COLLECTION);
 }
 
 function parseCsvContent(raw: string): { headers: string[]; rows: CsvRow[] } {
@@ -129,11 +149,12 @@ export function stringifyCSV(headers: string[], rows: Record<string, unknown>[])
   return [headerLine, ...body].join('\n');
 }
 
-export function parseCSV(filename: string): CsvRow[] {
-  return readCSV(filename).rows;
+function parseCsvFile(filename: string, raw: string) {
+  const { headers, rows } = parseCsvContent(raw);
+  return { filename, headers, rows };
 }
 
-export function readCSV(filename: string): { filename: string; headers: string[]; rows: CsvRow[] } {
+function readLocalCSV(filename: string) {
   const safeName = normalizeFilename(filename);
   const filePath = resolveCSVPath(safeName);
 
@@ -142,17 +163,91 @@ export function readCSV(filename: string): { filename: string; headers: string[]
   }
 
   const raw = fs.readFileSync(filePath, 'utf-8');
-  const { headers, rows } = parseCsvContent(raw);
-  return { filename: safeName, headers, rows };
+  return parseCsvFile(safeName, raw);
 }
 
-export function listCSVFiles(): string[] {
-  ensureDataDir();
+async function readFirestoreCSV(filename: string) {
+  if (!shouldUseFirestoreStorage() || !isFirebaseAdminConfigured()) {
+    return null;
+  }
+
+  const safeName = normalizeFilename(filename);
+  const snapshot = await getCsvCollection().doc(safeName).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const content = snapshot.get('content');
+  if (typeof content !== 'string') {
+    throw new Error(`Stored CSV content is invalid for ${safeName}.`);
+  }
+
+  return parseCsvFile(safeName, content);
+}
+
+function listLocalCSVFiles(): string[] {
+  if (!fs.existsSync(DATA_DIR)) {
+    return [];
+  }
 
   return fs
     .readdirSync(DATA_DIR)
-    .filter((entry) => entry.toLowerCase().endsWith('.csv'))
-    .sort((a, b) => a.localeCompare(b));
+    .filter((entry) => entry.toLowerCase().endsWith('.csv'));
+}
+
+async function listFirestoreCSVFiles(): Promise<string[]> {
+  if (!shouldUseFirestoreStorage() || !isFirebaseAdminConfigured()) {
+    return [];
+  }
+
+  const snapshot = await getCsvCollection().get();
+  return snapshot.docs
+    .map((doc) => doc.id)
+    .filter((filename) => filename.toLowerCase().endsWith('.csv'));
+}
+
+async function persistCSVContent(filename: string, content: string) {
+  const safeName = normalizeFilename(filename);
+
+  if (shouldUseFirestoreStorage()) {
+    if (!isFirebaseAdminConfigured()) {
+      throw new Error(
+        'CSV cloud storage is enabled for this deployment, but Firebase admin credentials are missing.'
+      );
+    }
+
+    await getCsvCollection().doc(safeName).set({
+      filename: safeName,
+      content: content ? `${content}\n` : '',
+      updatedAt: Date.now(),
+    });
+    return;
+  }
+
+  ensureLocalDataDir();
+  const filePath = resolveCSVPath(safeName);
+  fs.writeFileSync(filePath, content ? `${content}\n` : '', 'utf-8');
+}
+
+export async function parseCSV(filename: string): Promise<CsvRow[]> {
+  const csv = await readCSV(filename);
+  return csv.rows;
+}
+
+export async function readCSV(filename: string): Promise<{ filename: string; headers: string[]; rows: CsvRow[] }> {
+  const safeName = normalizeFilename(filename);
+  const firestoreCsv = await readFirestoreCSV(safeName);
+
+  if (firestoreCsv) {
+    return firestoreCsv;
+  }
+
+  return readLocalCSV(safeName);
+}
+
+export async function listCSVFiles(): Promise<string[]> {
+  const [localFiles, firestoreFiles] = await Promise.all([Promise.resolve(listLocalCSVFiles()), listFirestoreCSVFiles()]);
+  return Array.from(new Set([...localFiles, ...firestoreFiles])).sort((a, b) => a.localeCompare(b));
 }
 
 function collectHeaders(existingHeaders: string[], row: Record<string, unknown>): string[] {
@@ -163,13 +258,12 @@ function collectHeaders(existingHeaders: string[], row: Record<string, unknown>)
   return [...existingHeaders, ...appendedHeaders];
 }
 
-export function writeCSV(filename: string, headers: string[], rows: Record<string, unknown>[]) {
+export async function writeCSV(filename: string, headers: string[], rows: Record<string, unknown>[]) {
   if (!headers.length) {
     throw new Error('CSV must contain at least one header.');
   }
 
   const safeName = normalizeFilename(filename);
-  const filePath = resolveCSVPath(safeName);
   const normalizedHeaders = headers.map((header) => header.trim()).filter(Boolean);
   const uniqueHeaders = Array.from(new Set(normalizedHeaders));
 
@@ -179,12 +273,12 @@ export function writeCSV(filename: string, headers: string[], rows: Record<strin
 
   const normalizedRows = rows.map((row) => normalizeRow(uniqueHeaders, row));
   const content = stringifyCSV(uniqueHeaders, normalizedRows);
-  fs.writeFileSync(filePath, content ? `${content}\n` : '', 'utf-8');
+  await persistCSVContent(safeName, content);
 
   return { filename: safeName, headers: uniqueHeaders, rows: normalizedRows };
 }
 
-export function replaceCSV(filename: string, content: string) {
+export async function replaceCSV(filename: string, content: string) {
   const { headers, rows } = parseCsvContent(content);
   if (!headers.length) {
     throw new Error('Uploaded CSV is empty or missing headers.');
@@ -193,15 +287,15 @@ export function replaceCSV(filename: string, content: string) {
   return writeCSV(filename, headers, rows);
 }
 
-export function appendCSVRow(filename: string, row: Record<string, unknown>) {
-  const current = readCSV(filename);
+export async function appendCSVRow(filename: string, row: Record<string, unknown>) {
+  const current = await readCSV(filename);
   const headers = collectHeaders(current.headers, row);
   const rows = [...current.rows, normalizeRow(headers, row)];
   return writeCSV(filename, headers, rows);
 }
 
-export function updateCSVRow(filename: string, rowIndex: number, row: Record<string, unknown>) {
-  const current = readCSV(filename);
+export async function updateCSVRow(filename: string, rowIndex: number, row: Record<string, unknown>) {
+  const current = await readCSV(filename);
 
   if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= current.rows.length) {
     throw new Error('Row index is out of range.');

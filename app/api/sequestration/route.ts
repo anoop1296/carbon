@@ -20,7 +20,10 @@ export async function GET(req: Request) {
     const vlcode = searchParams.get('vlcode') || '';
 
     // ── BEFORE ──────────────────────────────────────────────────────
-    const beforeRaw = parseCSV('Carbon_Sequestration_Before_Wide.csv');
+    const [beforeRaw, afterRaw] = await Promise.all([
+      parseCSV('Carbon_Sequestration_Before_Wide.csv'),
+      parseCSV('Carbon_Sequestration_After_Wide.csv'),
+    ]);
     const beforeFiltered = vlcode ? beforeRaw.filter(r => r.vlcode === vlcode) : beforeRaw;
 
     // Wide cols look like "Forest Cover_annual_co2_sequestered_kg" and "Forest Cover_area_ha"
@@ -60,7 +63,6 @@ export async function GET(req: Request) {
       { col: 'Soil Carbon_Organic_Farming_20ha_seq_kg',  type: 'Soil Carbon',  intervention: 'Organic Farming (20 ha)', area_added_ha: '20', sequestration_factor: '500' },
     ];
 
-    const afterRaw = parseCSV('Carbon_Sequestration_After_Wide.csv');
     const afterFiltered = vlcode ? afterRaw.filter(r => r.vlcode === vlcode) : afterRaw;
     const after: Record<string, string>[] = [];
 

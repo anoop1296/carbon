@@ -5,7 +5,7 @@ import { parseCSV } from '@/lib/csvParser';
 
 export async function GET() {
   try {
-    const data = parseCSV('Village.csv');
+    const data = await parseCSV('Village.csv');
     return NextResponse.json({ success: true, data });
   } catch (e) {
     console.error('[/api/village]', e);
