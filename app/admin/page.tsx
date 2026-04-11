@@ -51,6 +51,24 @@ function applyVillageFields(row: CsvRow, headers: string[], village: CsvRow | nu
   return nextRow;
 }
 
+function normalizeAdminErrorMessage(message: string) {
+  const text = message.trim();
+
+  if (/read-only file system|EROFS/i.test(text)) {
+    return 'Vercel deployment cannot write directly to public CSV files. Use Firestore/cloud storage mode for hosted updates, then try again.';
+  }
+
+  if (/Cloud Firestore API has not been used|firestore\.googleapis\.com|PERMISSION_DENIED/i.test(text)) {
+    return 'Cloud Firestore is not enabled for this Firebase project yet. Open Firebase Console, create Firestore Database, wait 2-5 minutes, and try again.';
+  }
+
+  if (/Missing Firebase admin environment variable/i.test(text)) {
+    return 'Firebase admin environment variables are missing on this deployment. Add the Firebase server credentials in Vercel and redeploy.';
+  }
+
+  return text;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [files, setFiles] = useState<string[]>([]);
@@ -73,6 +91,7 @@ export default function AdminPage() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
 
   const selectedVillage =
     villageRows.find((row) => row.vlcode === selectedVillageCode) || villageRows[0] || null;
@@ -134,7 +153,7 @@ export default function AdminPage() {
 
       setSelectedFile(nextSelected);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load CSV files.');
+      showAdminError(err instanceof Error ? err.message : 'Failed to load CSV files.');
       setFiles([]);
       setSelectedFile('');
     } finally {
@@ -173,7 +192,7 @@ export default function AdminPage() {
       setFormData(createEmptyRow(nextCsvData.headers));
       setEditingRowIndex(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load CSV data.');
+      showAdminError(err instanceof Error ? err.message : 'Failed to load CSV data.');
       setCsvData(null);
       setEditableHeaders([]);
       setFormData({});
@@ -223,6 +242,25 @@ export default function AdminPage() {
     }
   }, [files, selectedFile, villageRows.length]);
 
+  useEffect(() => {
+    if (!error) {
+      setShowErrorPopup(false);
+      return;
+    }
+
+    setShowErrorPopup(true);
+    const timer = window.setTimeout(() => {
+      setShowErrorPopup(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
+  function showAdminError(rawMessage: string) {
+    setMessage('');
+    setError(normalizeAdminErrorMessage(rawMessage));
+  }
+
   function resetForm(headers = editableHeaders) {
     setFormData(applyVillageFields(createEmptyRow(headers), headers, selectedVillage));
     setEditingRowIndex(null);
@@ -243,7 +281,7 @@ export default function AdminPage() {
     }
 
     if (editableHeaders.includes(header)) {
-      setError(`Column "${header}" already exists.`);
+      showAdminError(`Column "${header}" already exists.`);
       return;
     }
 
@@ -261,12 +299,12 @@ export default function AdminPage() {
     event.preventDefault();
 
     if (!selectedFile) {
-      setError('Please select a CSV file first.');
+      showAdminError('Please select a CSV file first.');
       return;
     }
 
     if (requiresVillage && !selectedVillage) {
-      setError('Please create or select a village in Village.csv first.');
+      showAdminError('Please create or select a village in Village.csv first.');
       return;
     }
 
@@ -306,7 +344,7 @@ export default function AdminPage() {
           : selectedVillage?.[VILLAGE_CODE_FIELD]
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save row.');
+      showAdminError(err instanceof Error ? err.message : 'Failed to save row.');
     } finally {
       setSaving(false);
     }
@@ -316,7 +354,7 @@ export default function AdminPage() {
     event.preventDefault();
 
     if (!uploadFile) {
-      setError('Please choose a CSV file to upload.');
+      showAdminError('Please choose a CSV file to upload.');
       return;
     }
 
@@ -349,7 +387,7 @@ export default function AdminPage() {
       await loadCsv(nextFilename);
       await loadVillageMaster(selectedVillage?.[VILLAGE_CODE_FIELD]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload CSV.');
+      showAdminError(err instanceof Error ? err.message : 'Failed to upload CSV.');
     } finally {
       setUploading(false);
     }
@@ -423,6 +461,30 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.12),_transparent_35%),linear-gradient(180deg,_#f4fbf7_0%,_#eef5f1_45%,_#ffffff_100%)] text-slate-900">
+      {showErrorPopup && error && (
+        <div className="fixed right-4 top-4 z-[100] w-full max-w-md rounded-3xl border border-red-200 bg-white p-4 shadow-[0_24px_70px_rgba(220,38,38,0.18)]">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-red-100 text-lg font-bold text-red-600">
+              !
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-red-600">
+                Error
+              </div>
+              <div className="mt-1 text-sm leading-6 text-slate-700">{error}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowErrorPopup(false)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-red-200 hover:text-red-600"
+              aria-label="Close error popup"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-10">
         <header className="rounded-[28px] border border-emerald-100 bg-white/90 p-6 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -470,15 +532,9 @@ export default function AdminPage() {
           </div>
         </header>
 
-        {(message || error) && (
-          <div
-            className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
-              error
-                ? 'border-red-200 bg-red-50 text-red-700'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            }`}
-          >
-            {error || message}
+        {message && (
+          <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {message}
           </div>
         )}
 
