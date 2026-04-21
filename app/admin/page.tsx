@@ -2,12 +2,80 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { signOut } from 'firebase/auth';
 
 import { getFirebaseClientAuth } from '@/lib/firebaseClient';
 
 type CsvRow = Record<string, string>;
+
+const COLUMN_DESCRIPTIONS: Record<string, string> = {
+  vlcode: 'Unique 6-digit village code (e.g. 200001). Must match Village.csv.',
+  village_name: 'Full name of the village as registered.',
+  district: 'District the village belongs to.',
+  state: 'State the village belongs to.',
+  total_population: 'Total resident population count.',
+  total_area_ha: 'Total land area in hectares.',
+  builtup_area_ha: 'Built-up / settlement area in hectares.',
+  agricultural_area_ha: 'Agricultural land area in hectares.',
+  water_bodies_area_ha: 'Water bodies area in hectares.',
+  total_households: 'Total number of households.',
+  total_livestock: 'Total livestock animal count.',
+  total_vehicles: 'Total registered vehicles.',
+  category: 'Emission factor category name.',
+  emission_factor: 'Emission factor value with units (e.g. 1.77 kg CO2/unit).',
+  source: 'Data source reference (e.g. IPCC 2006).',
+};
+
+function getColumnDescription(header: string): string {
+  if (COLUMN_DESCRIPTIONS[header]) return COLUMN_DESCRIPTIONS[header];
+  const lower = header.toLowerCase();
+  if (lower.startsWith('agriculture_')) return 'Agricultural activity quantity (kg/tonnes).';
+  if (lower.startsWith('livestock_')) return 'Livestock-related emission or activity value.';
+  if (lower.startsWith('residential_') || lower.includes('firewood') || lower.includes('lpg')) return 'Household energy consumption quantity.';
+  if (lower.startsWith('transport_') || lower.includes('petrol') || lower.includes('diesel')) return 'Transport fuel consumption in litres.';
+  if (lower.startsWith('energy_') || lower.includes('electricity') || lower.endsWith('_kwh')) return 'Energy in kWh.';
+  if (lower.startsWith('waste_') || lower.includes('waste')) return 'Waste quantity in kg.';
+  if (lower.endsWith('_ha') || lower.includes('area')) return 'Area in hectares.';
+  if (lower.endsWith('_kg')) return 'Quantity in kilograms.';
+  if (lower.endsWith('_litres') || lower.endsWith('_litre')) return 'Volume in litres.';
+  if (lower.endsWith('_count')) return 'Count / numeric quantity.';
+  if (lower.includes('sequestration')) return 'Carbon sequestration (tCO2e).';
+  if (lower.includes('emission')) return 'Emission amount (kg CO2e or tCO2e).';
+  if (lower.includes('budget')) return 'Carbon budget value.';
+  if (lower.includes('projection') || lower.includes('scenario')) return 'Scenario projection value.';
+  if (lower.includes('month')) return 'Month name or number (1–12).';
+  if (lower.includes('year')) return 'Year (e.g. 2023).';
+  return 'Data value for this column.';
+}
+
+function generateSampleValue(header: string): string {
+  const lower = header.toLowerCase();
+  if (lower === 'vlcode') return '200001';
+  if (lower === 'village_name') return 'Sample Village';
+  if (lower === 'district') return 'Sample District';
+  if (lower === 'state') return 'Uttar Pradesh';
+  if (lower === 'category') return 'Sample Category';
+  if (lower === 'emission_factor') return '1.5 kg CO2/unit';
+  if (lower === 'source') return 'IPCC 2006';
+  if (lower.includes('population')) return '1500';
+  if (lower.includes('household')) return '200';
+  if (lower.includes('livestock')) return '400';
+  if (lower.includes('vehicle')) return '100';
+  if (lower.endsWith('_ha') || lower.includes('area')) return '150';
+  if (lower.endsWith('_kwh') || lower.includes('electricity')) return '25000';
+  if (lower.endsWith('_kg') || lower.includes('firewood')) return '5000';
+  if (lower.endsWith('_litres') || lower.includes('petrol') || lower.includes('diesel')) return '1200';
+  if (lower.endsWith('_count')) return '50';
+  if (lower.includes('month')) return '1';
+  if (lower.includes('year')) return '2023';
+  return '0';
+}
+
+function escapeCsvValueClient(value: string): string {
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
 
 type CsvData = {
   filename: string;
@@ -80,18 +148,19 @@ export default function AdminPage() {
   const [formData, setFormData] = useState<CsvRow>({});
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null);
   const [newColumnName, setNewColumnName] = useState('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadFilename, setUploadFilename] = useState('');
+  const [allFileHeaders, setAllFileHeaders] = useState<Record<string, string[]>>({});
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [loadingCsv, setLoadingCsv] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [adminEmail, setAdminEmail] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [showFormatInfo, setShowFormatInfo] = useState(false);
 
   const selectedVillage =
     villageRows.find((row) => row.vlcode === selectedVillageCode) || villageRows[0] || null;
@@ -152,6 +221,21 @@ export default function AdminPage() {
           : nextFiles[0] || '';
 
       setSelectedFile(nextSelected);
+
+      // Pre-load headers for all files (for master template generation)
+      const headerMap: Record<string, string[]> = {};
+      await Promise.all(
+        nextFiles.map(async (file) => {
+          try {
+            const r = await fetch(`/api/admin/csv/${encodeURIComponent(file)}`, { cache: 'no-store' });
+            const d = await r.json();
+            if (r.ok && d.success) headerMap[file] = d.headers as string[];
+          } catch {
+            // skip
+          }
+        })
+      );
+      setAllFileHeaders(headerMap);
     } catch (err) {
       showAdminError(err instanceof Error ? err.message : 'Failed to load CSV files.');
       setFiles([]);
@@ -350,49 +434,6 @@ export default function AdminPage() {
     }
   }
 
-  async function handleUpload(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!uploadFile) {
-      showAdminError('Please choose a CSV file to upload.');
-      return;
-    }
-
-    setUploading(true);
-    setError('');
-    setMessage('');
-
-    try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('file', uploadFile);
-      if (uploadFilename.trim()) {
-        formDataToSend.append('filename', uploadFilename.trim());
-      }
-
-      const res = await fetch('/api/admin/upload', {
-        method: 'POST',
-        body: formDataToSend,
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to upload CSV.');
-      }
-
-      const nextFilename = data.filename as string;
-      setMessage(data.message || 'CSV uploaded successfully.');
-      setUploadFile(null);
-      setUploadFilename('');
-      await loadFiles(nextFilename);
-      await loadCsv(nextFilename);
-      await loadVillageMaster(selectedVillage?.[VILLAGE_CODE_FIELD]);
-    } catch (err) {
-      showAdminError(err instanceof Error ? err.message : 'Failed to upload CSV.');
-    } finally {
-      setUploading(false);
-    }
-  }
-
   function beginEditRow(row: CsvRow, rowIndex: number) {
     const nextHeaders = Array.from(new Set([...editableHeaders, ...Object.keys(row)]));
     setEditableHeaders(nextHeaders);
@@ -422,14 +463,6 @@ export default function AdminPage() {
     setError('');
   }
 
-  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] || null;
-    setUploadFile(file);
-    if (file && !uploadFilename) {
-      setUploadFilename(file.name);
-    }
-  }
-
   const previewRows = csvData?.rows || [];
 
   async function handleLogout() {
@@ -446,6 +479,78 @@ export default function AdminPage() {
     } finally {
       router.replace('/admin/login');
       router.refresh();
+    }
+  }
+
+  function downloadMasterTemplate() {
+    const fileOrder = [
+      MASTER_VILLAGE_FILE,
+      ...Object.keys(allFileHeaders).filter((f) => f !== MASTER_VILLAGE_FILE),
+    ];
+
+    const seen = new Set<string>();
+    const masterHeaders: string[] = [];
+
+    // Always vlcode + village_name first
+    ['vlcode', 'village_name'].forEach((h) => { if (!seen.has(h)) { seen.add(h); masterHeaders.push(h); } });
+
+    // Then all unique columns from every CSV file in order
+    fileOrder.forEach((file) => {
+      (allFileHeaders[file] || []).forEach((h) => {
+        if (!seen.has(h)) { seen.add(h); masterHeaders.push(h); }
+      });
+    });
+
+    if (!masterHeaders.length) {
+      showAdminError('No CSV files loaded yet. Wait for the page to finish loading.');
+      return;
+    }
+
+    const headerRow = masterHeaders.map(escapeCsvValueClient).join(',');
+    const sampleRow = masterHeaders.map(generateSampleValue).map(escapeCsvValueClient).join(',');
+    const csvContent = `${headerRow}\n${sampleRow}\n`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'master_template_all_csvs.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleMasterImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!bulkFile) {
+      showAdminError('Please choose the filled master template CSV to import.');
+      return;
+    }
+
+    setBulkImporting(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const fd = new FormData();
+      fd.append('file', bulkFile);
+
+      const res = await fetch('/api/admin/master-import', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to import master CSV.');
+      }
+
+      setMessage(data.message || 'Master import completed.');
+      setBulkFile(null);
+      await loadFiles(selectedFile);
+      await loadCsv(selectedFile);
+      await loadVillageMaster(selectedVillage?.[VILLAGE_CODE_FIELD]);
+    } catch (err) {
+      showAdminError(err instanceof Error ? err.message : 'Failed to import master CSV.');
+    } finally {
+      setBulkImporting(false);
     }
   }
 
@@ -485,367 +590,395 @@ export default function AdminPage() {
         </div>
       )}
 
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-10">
-        <header className="rounded-[28px] border border-emerald-100 bg-white/90 p-6 shadow-[0_30px_80px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">
-                CSV Admin Panel
-              </div>
-              <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-                Manage dashboard CSV data directly
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-                Upload a new CSV, replace an existing one, add rows, or update existing dashboard data. Local
-                development reads from <span className="font-semibold text-emerald-700">public/Clean2</span>, while
-                deployed updates are persisted in cloud storage.
-              </p>
-            </div>
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
-            <div className="flex flex-wrap gap-3">
-              {adminEmail && (
-                <div className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-semibold text-emerald-700">
-                  {adminEmail}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="inline-flex items-center justify-center rounded-full border border-red-200 bg-white px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loggingOut ? 'Logging out...' : 'Logout'}
+        {/* ── Top header bar ── */}
+        <header className="rounded-2xl border border-emerald-100 bg-white/95 px-5 py-4 shadow-sm backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-slate-900">CSV Admin Panel</h1>
+                {adminEmail && <p className="text-xs text-slate-400">{adminEmail}</p>}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/dashboard"
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700">
+                Dashboard
+              </Link>
+              <Link href="/"
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700">
+                Home
+              </Link>
+              <button type="button" onClick={handleLogout} disabled={loggingOut}
+                className="rounded-full bg-red-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-600 disabled:opacity-60">
+                {loggingOut ? 'Logging out…' : 'Logout'}
               </button>
-              <Link
-                href="/dashboard"
-                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700"
-              >
-                 Dashboard
-              </Link>
-              <Link
-                href="/"
-                className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
-              >
-                Back Home
-              </Link>
             </div>
           </div>
         </header>
 
         {message && (
-          <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
             {message}
           </div>
         )}
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="space-y-6">
-            <section className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+        <div className="mt-5 grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
+          <aside className="space-y-4">
+
+            {/* ── Available CSVs ── */}
+            <section className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-900">Available CSVs</h2>
-                <button
-                  type="button"
-                  onClick={() => loadFiles(selectedFile)}
-                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
-                >
+                <h2 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-700">Available CSVs</h2>
+                <button type="button" onClick={() => loadFiles(selectedFile)}
+                  className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:border-emerald-200 hover:text-emerald-600">
                   Refresh
                 </button>
               </div>
 
-              <div className="mt-4">
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Select file
-                </label>
-                <select
-                  value={selectedFile}
-                  onChange={(event) => setSelectedFile(event.target.value)}
-                  disabled={loadingFiles || files.length === 0}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:bg-white"
-                >
-                  {files.length === 0 && <option value="">No CSV files found</option>}
-                  {files.map((file) => (
-                    <option
-                      key={file}
-                      value={file}
-                      disabled={file !== MASTER_VILLAGE_FILE && villageRows.length === 0}
-                    >
-                      {file}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={selectedFile}
+                onChange={(event) => setSelectedFile(event.target.value)}
+                disabled={loadingFiles || files.length === 0}
+                className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-800 outline-none transition focus:border-emerald-400 focus:bg-white"
+              >
+                {files.length === 0 && <option value="">No CSV files found</option>}
+                {files.map((file) => (
+                  <option key={file} value={file} disabled={file !== MASTER_VILLAGE_FILE && villageRows.length === 0}>
+                    {file}
+                  </option>
+                ))}
+              </select>
 
               {villageRows.length === 0 && files.includes(MASTER_VILLAGE_FILE) && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                  Fill <span className="font-semibold">Village.csv</span> first. Other village-based CSV forms will
-                  unlock after at least one village is added there.
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+                  Fill <span className="font-semibold">Village.csv</span> first to unlock other files.
+                </p>
+              )}
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Files</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{loadingFiles ? '…' : files.length}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Rows</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{loadingCsv ? '…' : csvData?.rowCount ?? 0}</p>
+                </div>
+              </div>
+
+              {/* Current file column badges */}
+              {editableHeaders.length > 0 && (
+                <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Columns in {selectedFile}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {editableHeaders.map((h) => (
+                      <span key={h} className="rounded-md border border-emerald-100 bg-white px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">{h}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* ── Master Import ── */}
+            <section className="rounded-2xl border border-violet-100 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-700">
+                    Master Import
+                  </div>
+                  <h2 className="mt-1.5 text-sm font-bold text-slate-900">One Template — All CSV Files</h2>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                    Download one master template that contains <span className="font-semibold">every column</span> from all your CSV files. Fill it once, upload once — data goes into the right file automatically.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFormatInfo((v) => !v)}
+                  aria-label="How it works"
+                  title="How it works"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-50 text-xs font-bold italic text-sky-600 transition hover:bg-sky-100"
+                >
+                  i
+                </button>
+              </div>
+
+              {showFormatInfo && (
+                <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50 p-3">
+                  <p className="text-xs font-semibold text-sky-900">How it works</p>
+                  <ol className="mt-1.5 list-decimal space-y-1 pl-4 text-[11px] leading-5 text-slate-600">
+                    <li>Click <span className="font-semibold">Download Master Template</span>.</li>
+                    <li>Open in Excel / Google Sheets. Each row = one village. Fill all columns you have data for — leave others blank.</li>
+                    <li>Save as <code>.csv</code> and upload below.</li>
+                    <li>The system reads each row and automatically puts the right columns into the right CSV file — Village.csv, Annual Emissions, Monthly Activity, Carbon Budget, etc.</li>
+                  </ol>
+                  {Object.keys(allFileHeaders).length > 0 && (
+                    <div className="mt-3 border-t border-sky-200 pt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-sky-800">Files included in master template</p>
+                      <div className="mt-1.5 space-y-1">
+                        {Object.entries(allFileHeaders).map(([file, headers]) => (
+                          <div key={file} className="rounded-lg bg-white/80 px-2.5 py-1.5">
+                            <p className="text-[10px] font-semibold text-violet-700">{file}</p>
+                            <p className="mt-0.5 text-[10px] leading-4 text-slate-500 break-words">{headers.join(', ')}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Files</div>
-                  <div className="mt-2 text-2xl font-bold text-slate-900">
-                    {loadingFiles ? '...' : files.length}
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Rows</div>
-                  <div className="mt-2 text-2xl font-bold text-slate-900">
-                    {loadingCsv ? '...' : csvData?.rowCount ?? 0}
-                  </div>
-                </div>
+              {/* Step 1 */}
+              <div className="mt-4 flex items-center gap-2">
+                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">1</span>
+                <span className="text-xs font-semibold text-slate-700">Download the master template</span>
               </div>
-            </section>
+              <button
+                type="button"
+                onClick={downloadMasterTemplate}
+                disabled={Object.keys(allFileHeaders).length === 0}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+                </svg>
+                <span className="truncate">Download Master Template</span>
+              </button>
 
-            <section className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
-              <h2 className="text-lg font-semibold text-slate-900">Upload or Replace CSV</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Upload any `.csv` file. If the filename matches an existing file, it will replace that CSV.
-              </p>
-
-              <form className="mt-4 space-y-4" onSubmit={handleUpload}>
-                <div>
-                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Target filename
-                  </label>
-                  <input
-                    value={uploadFilename}
-                    onChange={(event) => setUploadFilename(event.target.value)}
-                    placeholder="Village.csv"
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    CSV file
-                  </label>
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={handleFileInputChange}
-                    className="block w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-emerald-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-700"
-                  />
-                </div>
-
+              {/* Step 2 */}
+              <div className="mt-4 flex items-center gap-2">
+                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">2</span>
+                <span className="text-xs font-semibold text-slate-700">Upload your filled template</span>
+              </div>
+              <form className="mt-2 space-y-2.5" onSubmit={handleMasterImport}>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  className="block w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/40 px-3 py-2.5 text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-violet-600 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-violet-700"
+                />
+                <p className="text-[10px] leading-4 text-slate-400">
+                  Each row = one village. Data is matched by column name and distributed across all CSV files automatically.
+                </p>
                 <button
                   type="submit"
-                  disabled={uploading}
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={bulkImporting || !bulkFile}
+                  className="flex w-full items-center justify-center rounded-xl bg-violet-600 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {uploading ? 'Uploading...' : 'Upload CSV'}
+                  {bulkImporting ? 'Distributing data…' : 'Import & Distribute All Data'}
                 </button>
               </form>
             </section>
           </aside>
 
-          <section className="space-y-6">
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-              <article className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">
-                      {editingRowIndex === null ? 'Add a new row' : `Edit row ${editingRowIndex + 1}`}
-                    </h2>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Fields are generated from the selected CSV header. Add a new column if you need extra data.
+          <section className="space-y-5">
+
+            {/* ── Village selector banner (non-village CSVs only) ── */}
+            {!isVillageFile && requiresVillage && (
+              <div className="rounded-[20px] border border-sky-200 bg-sky-50 px-5 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Active Village</p>
+                    <p className="mt-0.5 text-xs text-sky-600">
+                      vlcode &amp; village_name will be filled automatically for every row you add.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => resetForm()}
-                    className="inline-flex items-center justify-center rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+                  <select
+                    value={selectedVillage?.[VILLAGE_CODE_FIELD] || ''}
+                    onChange={(event) => setSelectedVillageCode(event.target.value)}
+                    disabled={villageLocked}
+                    className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 outline-none transition focus:border-sky-400 sm:w-64"
                   >
+                    {villageRows.length === 0 && <option value="">Add a village first</option>}
+                    {villageRows.map((village) => (
+                      <option key={village.vlcode} value={village.vlcode}>
+                        {village.village_name} · {village.vlcode}
+                        {village.district ? ` · ${village.district}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {villageLocked && (
+                  <p className="mt-3 text-xs text-amber-700">
+                    Add at least one village in <span className="font-semibold">Village.csv</span> to unlock this form.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* ── Add / Edit row form ── */}
+            <article className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    {editingRowIndex === null ? 'Add a new row' : `Edit row ${editingRowIndex + 1}`}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {selectedFile
+                      ? `Editing ${selectedFile} — ${editableHeaders.length} column${editableHeaders.length !== 1 ? 's' : ''}`
+                      : 'Select a CSV file from the sidebar to begin.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {editingRowIndex !== null && (
+                    <button type="button" onClick={() => resetForm()}
+                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700">
+                      Cancel Edit
+                    </button>
+                  )}
+                  <button type="button" onClick={() => resetForm()}
+                    className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700">
                     Clear Form
                   </button>
                 </div>
-
-                {!isVillageFile && requiresVillage && (
-                  <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-                      Select village master
-                    </label>
-                    <select
-                      value={selectedVillage?.[VILLAGE_CODE_FIELD] || ''}
-                      onChange={(event) => setSelectedVillageCode(event.target.value)}
-                      disabled={villageLocked}
-                      className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-sky-400"
-                    >
-                      {villageRows.length === 0 && <option value="">Add village data first</option>}
-                      {villageRows.map((village) => (
-                        <option key={village.vlcode} value={village.vlcode}>
-                          {village.village_name} ({village.vlcode})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-sm text-sky-700">
-                      The selected village will automatically fill `vlcode` and `village_name` in this CSV.
-                    </p>
-                  </div>
-                )}
-
-                {villageLocked && (
-                  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                    Add at least one village in <span className="font-semibold">Village.csv</span> before updating this
-                    file.
-                  </div>
-                )}
-
-                <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/70 p-4 sm:flex-row">
-                  <input
-                    value={newColumnName}
-                    onChange={(event) => setNewColumnName(event.target.value)}
-                    placeholder="Add custom column name"
-                    className="flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-emerald-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddColumn}
-                    className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                  >
-                    Add Column
-                  </button>
-                </div>
-
-                <form className="mt-5" onSubmit={handleSaveRow}>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {editableHeaders.length === 0 && (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                        Select a CSV file to load its headers.
-                      </div>
-                    )}
-
-                    {editableHeaders.map((header) => (
-                      <label key={header} className="block">
-                        <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          {header}
-                        </span>
-                        <input
-                          value={formData[header] || ''}
-                          onChange={(event) => handleFieldChange(header, event.target.value)}
-                          readOnly={!isVillageFile && (header === VILLAGE_CODE_FIELD || header === VILLAGE_NAME_FIELD)}
-                          className={`w-full rounded-2xl border px-4 py-3 text-sm text-slate-800 outline-none transition ${
-                            !isVillageFile && (header === VILLAGE_CODE_FIELD || header === VILLAGE_NAME_FIELD)
-                              ? 'border-sky-200 bg-sky-50'
-                              : 'border-slate-200 bg-slate-50 focus:border-emerald-400 focus:bg-white'
-                          }`}
-                        />
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                    <button
-                      type="submit"
-                      disabled={saveDisabled}
-                      className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {saving
-                        ? 'Saving...'
-                        : editingRowIndex === null
-                          ? 'Add Row to CSV'
-                          : 'Update Row in CSV'}
-                    </button>
-                    {editingRowIndex !== null && (
-                      <button
-                        type="button"
-                        onClick={() => resetForm()}
-                        className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
-                      >
-                        Cancel Edit
-                      </button>
-                    )}
-                  </div>
-                </form>
-              </article>
-
-              <article className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
-                <h2 className="text-lg font-semibold text-slate-900">Current file details</h2>
-                <div className="mt-5 space-y-4">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Filename</div>
-                    <div className="mt-2 break-all text-sm font-semibold text-slate-900">
-                      {selectedFile || 'No file selected'}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Headers</div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {editableHeaders.length === 0 && (
-                        <span className="text-sm text-slate-500">No headers loaded yet.</span>
-                      )}
-                      {editableHeaders.map((header) => (
-                        <span
-                          key={header}
-                          className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"
-                        >
-                          {header}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                    Click any row in the preview table below to load it into the form and update the same CSV.
-                  </div>
-                </div>
-              </article>
-            </div>
-
-            <article className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Preview rows</h2>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Click any row to load it into the form and update the same CSV file.
-                  </p>
-                </div>
-                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  {loadingCsv ? 'Loading data' : `${csvData?.rowCount ?? 0} total rows`}
-                </div>
               </div>
 
-              <div className="mt-5 overflow-hidden rounded-3xl border border-slate-200">
-                <div className="max-h-[520px] overflow-auto">
+              {/* Add custom column */}
+              <div className="mt-4 flex gap-2">
+                <input
+                  value={newColumnName}
+                  onChange={(event) => setNewColumnName(event.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddColumn())}
+                  placeholder="Add custom column…"
+                  className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:bg-white"
+                />
+                <button type="button" onClick={handleAddColumn}
+                  className="rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                  + Column
+                </button>
+              </div>
+
+              <form className="mt-5" onSubmit={handleSaveRow}>
+                {editableHeaders.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center text-sm text-slate-400">
+                    Select a CSV file to load its columns.
+                  </div>
+                ) : (
+                  <>
+                    {/* Village.csv — show only the 12 core village-profile columns */}
+                    {isVillageFile && (() => {
+                      const VILLAGE_PROFILE = ['vlcode','village_name','district','state','total_population','total_area_ha','builtup_area_ha','agricultural_area_ha','water_bodies_area_ha','total_households','total_livestock','total_vehicles'];
+                      const profileHeaders = editableHeaders.filter(h => VILLAGE_PROFILE.includes(h));
+                      return (
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          {profileHeaders.map((header) => (
+                            <label key={header} className="block">
+                              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">{header}</span>
+                              <input
+                                value={formData[header] || ''}
+                                onChange={(e) => handleFieldChange(header, e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:bg-white"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Village.csv hint: activity columns hidden */}
+                    {isVillageFile && (
+                      <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-400">
+                        Activity data columns (Agriculture, Energy, Livestock, etc.) are managed separately via their own CSV files and are not shown here.
+                      </p>
+                    )}
+
+                    {/* Non-village CSV fields */}
+                    {!isVillageFile && (
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {editableHeaders.map((header) => {
+                          const isAutoFilled = !isVillageFile && (header === VILLAGE_CODE_FIELD || header === VILLAGE_NAME_FIELD);
+                          return (
+                            <label key={header} className="block">
+                              <span className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">
+                                {header}
+                                {isAutoFilled && <span className="rounded bg-sky-100 px-1 py-0.5 text-[9px] font-semibold text-sky-600">auto</span>}
+                              </span>
+                              <input
+                                value={formData[header] || ''}
+                                onChange={(e) => handleFieldChange(header, e.target.value)}
+                                readOnly={isAutoFilled}
+                                className={`w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none transition ${
+                                  isAutoFilled
+                                    ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                    : 'border-slate-200 bg-slate-50 focus:border-emerald-400 focus:bg-white'
+                                }`}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    disabled={saveDisabled}
+                    className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving ? 'Saving…' : editingRowIndex === null ? 'Add Row to CSV' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </article>
+
+            {/* ── Preview table ── */}
+            <article className="rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Data Preview</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Click any row to load it into the form above for editing.</p>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                  {loadingCsv ? 'Loading…' : `${csvData?.rowCount ?? 0} rows`}
+                </span>
+              </div>
+
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                <div className="max-h-[480px] overflow-auto">
                   <table className="min-w-full border-collapse text-left text-sm">
-                    <thead className="sticky top-0 bg-slate-900 text-white">
+                    <thead className="sticky top-0 z-10 bg-slate-900 text-white">
                       <tr>
-                        <th className="px-4 py-3 font-semibold">#</th>
+                        <th className="w-10 px-4 py-3 text-xs font-semibold">#</th>
                         {editableHeaders.map((header) => (
-                          <th key={header} className="px-4 py-3 font-semibold">
+                          <th key={header} className="whitespace-nowrap px-4 py-3 text-xs font-semibold">
                             {header}
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRows.length === 0 && (
+                      {previewRows.length === 0 ? (
                         <tr>
-                          <td
-                            colSpan={Math.max(editableHeaders.length + 1, 1)}
-                            className="px-4 py-10 text-center text-slate-500"
-                          >
-                            {selectedFile ? 'No rows available in this CSV.' : 'Select a CSV file to preview data.'}
+                          <td colSpan={Math.max(editableHeaders.length + 1, 1)} className="px-4 py-12 text-center text-sm text-slate-400">
+                            {selectedFile ? 'No rows in this CSV yet.' : 'Select a CSV file to preview data.'}
                           </td>
                         </tr>
+                      ) : (
+                        previewRows.map((row, rowIndex) => (
+                          <tr
+                            key={`${selectedFile}-${rowIndex}`}
+                            onClick={() => beginEditRow(row, rowIndex)}
+                            className={`cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/60 ${editingRowIndex === rowIndex ? 'bg-emerald-50' : ''}`}
+                          >
+                            <td className="px-4 py-3 text-xs font-bold text-slate-400">{rowIndex + 1}</td>
+                            {editableHeaders.map((header) => (
+                              <td key={`${rowIndex}-${header}`} className="max-w-[180px] px-4 py-3 text-slate-700">
+                                <div className="truncate text-xs" title={row[header] || ''}>
+                                  {row[header] || <span className="text-slate-300">—</span>}
+                                </div>
+                              </td>
+                            ))}
+                          </tr>
+                        ))
                       )}
-
-                      {previewRows.map((row, rowIndex) => (
-                        <tr
-                          key={`${selectedFile}-${rowIndex}`}
-                          onClick={() => beginEditRow(row, rowIndex)}
-                          className="cursor-pointer border-t border-slate-100 transition hover:bg-emerald-50/70"
-                        >
-                          <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-500">{rowIndex + 1}</td>
-                          {editableHeaders.map((header) => (
-                            <td key={`${rowIndex}-${header}`} className="max-w-[220px] px-4 py-3 text-slate-700">
-                              <div className="truncate" title={row[header] || ''}>
-                                {row[header] || '-'}
-                              </div>
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
                     </tbody>
                   </table>
                 </div>

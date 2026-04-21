@@ -52,8 +52,7 @@ export default function AdminLoginClient() {
         throw new Error(data.error || 'Login failed.');
       }
 
-      router.replace(nextPath);
-      router.refresh();
+      window.location.replace(nextPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed.');
     } finally {

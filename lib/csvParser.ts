@@ -126,6 +126,26 @@ function escapeCsvValue(value: string): string {
   return value;
 }
 
+export function upsertRowsByVlcode(existingRows: CsvRow[], newRows: CsvRow[], headers: string[]): CsvRow[] {
+  const VLCODE = 'vlcode';
+  if (!headers.includes(VLCODE)) return [...existingRows, ...newRows];
+  const result = existingRows.map((row) => ({ ...row }));
+  for (const newRow of newRows) {
+    const newVlcode = (newRow[VLCODE] ?? '').trim();
+    if (!newVlcode) {
+      result.push(normalizeRow(headers, newRow));
+      continue;
+    }
+    const idx = result.findIndex((r) => (r[VLCODE] ?? '').trim() === newVlcode);
+    if (idx >= 0) {
+      result[idx] = normalizeRow(headers, { ...result[idx], ...newRow });
+    } else {
+      result.push(normalizeRow(headers, newRow));
+    }
+  }
+  return result;
+}
+
 function normalizeRow(headers: string[], row: Record<string, unknown>): CsvRow {
   return headers.reduce<CsvRow>((acc, header) => {
     const raw = row[header];
@@ -208,7 +228,19 @@ async function listFirestoreCSVFiles(): Promise<string[]> {
 
 async function persistCSVContent(filename: string, content: string) {
   const safeName = normalizeFilename(filename);
+  const fileContent = content ? `${content}\n` : '';
 
+  // Always write to the local public/Clean2 directory so the dashboard's
+  // static CSV reads stay in sync. On Vercel (read-only FS) this fails
+  // silently — Firestore below becomes the source of truth there.
+  try {
+    ensureLocalDataDir();
+    fs.writeFileSync(resolveCSVPath(safeName), fileContent, 'utf-8');
+  } catch {
+    // Read-only filesystem (e.g. Vercel production) — skip silently.
+  }
+
+  // Also persist to Firestore when cloud storage is configured.
   if (shouldUseFirestoreStorage()) {
     if (!isFirebaseAdminConfigured()) {
       throw new Error(
@@ -218,15 +250,10 @@ async function persistCSVContent(filename: string, content: string) {
 
     await getCsvCollection().doc(safeName).set({
       filename: safeName,
-      content: content ? `${content}\n` : '',
+      content: fileContent,
       updatedAt: Date.now(),
     });
-    return;
   }
-
-  ensureLocalDataDir();
-  const filePath = resolveCSVPath(safeName);
-  fs.writeFileSync(filePath, content ? `${content}\n` : '', 'utf-8');
 }
 
 export async function parseCSV(filename: string): Promise<CsvRow[]> {
@@ -290,8 +317,31 @@ export async function replaceCSV(filename: string, content: string) {
 export async function appendCSVRow(filename: string, row: Record<string, unknown>) {
   const current = await readCSV(filename);
   const headers = collectHeaders(current.headers, row);
-  const rows = [...current.rows, normalizeRow(headers, row)];
+  const rows = upsertRowsByVlcode(current.rows, [normalizeRow(headers, row)], headers);
   return writeCSV(filename, headers, rows);
+}
+
+export async function bulkAppendCSVRows(filename: string, uploadedContent: string) {
+  const { headers: newHeaders, rows: newRows } = parseCsvContent(uploadedContent);
+
+  if (!newHeaders.length) {
+    throw new Error('Uploaded CSV is empty or missing headers.');
+  }
+
+  if (!newRows.length) {
+    throw new Error('Uploaded CSV has headers but no data rows.');
+  }
+
+  let current: { filename: string; headers: string[]; rows: CsvRow[] };
+  try {
+    current = await readCSV(filename);
+  } catch {
+    return writeCSV(filename, newHeaders, newRows);
+  }
+
+  const mergedHeaders = Array.from(new Set([...current.headers, ...newHeaders]));
+  const mergedRows = upsertRowsByVlcode(current.rows, newRows, mergedHeaders);
+  return writeCSV(filename, mergedHeaders, mergedRows);
 }
 
 export async function updateCSVRow(filename: string, rowIndex: number, row: Record<string, unknown>) {
