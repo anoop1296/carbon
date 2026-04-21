@@ -226,6 +226,49 @@ async function listFirestoreCSVFiles(): Promise<string[]> {
     .filter((filename) => filename.toLowerCase().endsWith('.csv'));
 }
 
+async function persistToGitHub(filename: string, content: string): Promise<void> {
+  const token = process.env.GITHUB_TOKEN?.trim();
+  const owner = process.env.GITHUB_REPO_OWNER?.trim();
+  const repo = process.env.GITHUB_REPO_NAME?.trim();
+
+  if (!token || !owner || !repo) return;
+
+  const filePath = `public/Clean2/${filename}`;
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  };
+
+  // Fetch current SHA (needed for updates; absent for new files)
+  let sha: string | undefined;
+  try {
+    const existing = await fetch(apiUrl, { headers });
+    if (existing.ok) {
+      const json = await existing.json() as { sha?: string };
+      sha = json.sha;
+    }
+  } catch {
+    // Network error — skip GitHub sync silently
+    return;
+  }
+
+  const encoded = Buffer.from(content, 'utf-8').toString('base64');
+  const body: Record<string, unknown> = {
+    message: `chore: update ${filename} via admin panel`,
+    content: encoded,
+  };
+  if (sha) body.sha = sha;
+
+  try {
+    await fetch(apiUrl, { method: 'PUT', headers, body: JSON.stringify(body) });
+  } catch {
+    // GitHub write failed — non-fatal; Firestore is source of truth
+  }
+}
+
 async function persistCSVContent(filename: string, content: string) {
   const safeName = normalizeFilename(filename);
   const fileContent = content ? `${content}\n` : '';
@@ -254,6 +297,9 @@ async function persistCSVContent(filename: string, content: string) {
       updatedAt: Date.now(),
     });
   }
+
+  // Commit updated CSV back to GitHub so public/Clean2 stays in sync with Firestore.
+  await persistToGitHub(safeName, fileContent);
 }
 
 export async function parseCSV(filename: string): Promise<CsvRow[]> {
