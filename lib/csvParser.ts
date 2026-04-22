@@ -404,3 +404,17 @@ export async function updateCSVRow(filename: string, rowIndex: number, row: Reco
 
   return writeCSV(filename, headers, rows);
 }
+
+export async function deleteCSVRow(filename: string, rowIndex: number) {
+  const current = await readCSV(filename);
+
+  if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= current.rows.length) {
+    throw new Error('Row index is out of range.');
+  }
+
+  const rows = current.rows
+    .filter((_, index) => index !== rowIndex)
+    .map((row) => normalizeRow(current.headers, row));
+
+  return writeCSV(filename, current.headers, rows);
+}

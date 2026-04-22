@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAdminSession, isAdminAuthError } from '@/lib/adminAuth';
-import { appendCSVRow, readCSV, updateCSVRow } from '@/lib/csvParser';
+import { appendCSVRow, deleteCSVRow, readCSV, updateCSVRow } from '@/lib/csvParser';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +99,35 @@ export async function PUT(req: Request, { params }: RouteContext) {
     console.error(`[/api/admin/csv/${params.filename}] PUT`, error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to update row.' },
+      { status: 400 }
+    );
+  }
+}
+
+export async function DELETE(req: Request, { params }: RouteContext) {
+  try {
+    await getAdminSession();
+    const decodedFilename = decodeURIComponent(params.filename);
+    const body = await req.json();
+    const rowIndex = Number(body?.rowIndex);
+
+    const csv = await deleteCSVRow(decodedFilename, rowIndex);
+    return NextResponse.json({
+      success: true,
+      filename: csv.filename,
+      headers: csv.headers,
+      rows: csv.rows,
+      rowCount: csv.rows.length,
+      message: 'Row deleted successfully.',
+    });
+  } catch (error) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
+
+    console.error(`[/api/admin/csv/${params.filename}] DELETE`, error);
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Failed to delete row.' },
       { status: 400 }
     );
   }

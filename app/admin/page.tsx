@@ -152,6 +152,7 @@ export default function AdminPage() {
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [loadingCsv, setLoadingCsv] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingRow, setDeletingRow] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [adminEmail, setAdminEmail] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
@@ -431,6 +432,58 @@ export default function AdminPage() {
       showAdminError(err instanceof Error ? err.message : 'Failed to save row.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDeleteRow() {
+    if (!selectedFile) {
+      showAdminError('Please select a CSV file first.');
+      return;
+    }
+
+    if (editingRowIndex === null) {
+      showAdminError('Select a row to delete first.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete row ${editingRowIndex + 1} from ${selectedFile}? This cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingRow(true);
+    setError('');
+    setMessage('');
+
+    const deletedRow = csvData?.rows?.[editingRowIndex] || null;
+
+    try {
+      const res = await fetch(`/api/admin/csv/${encodeURIComponent(selectedFile)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowIndex: editingRowIndex }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete row.');
+      }
+
+      resetForm();
+      setMessage(data.message || 'Row deleted successfully.');
+      await loadCsv(selectedFile);
+      await loadVillageMaster(
+        selectedFile === MASTER_VILLAGE_FILE
+          ? selectedVillage?.[VILLAGE_CODE_FIELD]
+          : deletedRow?.[VILLAGE_CODE_FIELD] || selectedVillage?.[VILLAGE_CODE_FIELD]
+      );
+    } catch (err) {
+      showAdminError(err instanceof Error ? err.message : 'Failed to delete row.');
+    } finally {
+      setDeletingRow(false);
     }
   }
 
@@ -836,6 +889,16 @@ export default function AdminPage() {
                     className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700">
                     Clear Form
                   </button>
+                  {editingRowIndex !== null && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteRow}
+                      disabled={saving || deletingRow}
+                      className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deletingRow ? 'Deletingâ€¦' : 'Delete Row'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -920,7 +983,7 @@ export default function AdminPage() {
                 <div className="mt-5 flex flex-wrap gap-2">
                   <button
                     type="submit"
-                    disabled={saveDisabled}
+                    disabled={saveDisabled || deletingRow}
                     className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {saving ? 'Saving…' : editingRowIndex === null ? 'Add Row to CSV' : 'Save Changes'}
