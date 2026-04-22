@@ -176,16 +176,12 @@ export default function CarbonBudgetCard({
 
   const beforeSlices = useMemo<Slice[]>(() => {
     const slices: Slice[] = [];
-    const remainder = Math.max(totalEm - totalSeq - netEm, 0);
 
     if (totalSeq > 0) {
       slices.push({ label: 'Sequestered', value: totalSeq, color: '#10b981', tone: 'green' });
     }
     if (netEm > 0) {
       slices.push({ label: 'Net Emission', value: netEm, color: '#ef4444', tone: 'red' });
-    }
-    if (remainder > 0) {
-      slices.push({ label: 'Gross Remaining', value: remainder, color: '#8b5cf6', tone: 'violet' });
     }
 
     return slices.length > 0 ? slices : [{ label: 'No Data', value: 1, color: '#94a3b8', tone: 'slate' }];
