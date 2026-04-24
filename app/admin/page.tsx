@@ -123,14 +123,14 @@ function normalizeAdminErrorMessage(message: string) {
   const text = message.trim();
 
   if (/read-only file system|EROFS/i.test(text)) {
-    return 'Vercel deployment cannot write directly to public CSV files. Use Firestore/cloud storage mode for hosted updates, then try again.';
+    return 'This app now stores data in Firestore. Check that your Firebase admin credentials and Firestore access are configured correctly.';
   }
 
   if (/Cloud Firestore API has not been used|firestore\.googleapis\.com|PERMISSION_DENIED/i.test(text)) {
     return 'Cloud Firestore is not enabled for this Firebase project yet. Open Firebase Console, create Firestore Database, wait 2-5 minutes, and try again.';
   }
 
-  if (/Missing Firebase admin environment variable/i.test(text)) {
+  if (/Missing Firebase admin environment variable|Firebase admin credentials are required/i.test(text)) {
     return 'Firebase admin environment variables are missing on this deployment. Add the Firebase server credentials in Vercel and redeploy.';
   }
 

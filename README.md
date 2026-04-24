@@ -39,6 +39,8 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 The public pages remain open, while `/admin` and `/api/admin/*` are protected with Firebase login.
 
+All app data is now stored in Firestore. The old CSV files are no longer served from `public`; they live in `data/csvSeed` only as private bootstrap data so the first server request can seed Firestore automatically when the collection is empty.
+
 ### Required environment variables
 
 Copy `.env.example` into `.env.local` for local development, and add the same values in your Vercel project settings:
@@ -51,7 +53,6 @@ Copy `.env.example` into `.env.local` for local development, and add the same va
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`
-- `CSV_STORAGE_BACKEND` (`auto` by default, optional override to `firestore` or `filesystem`)
 - `ADMIN_EMAILS`
 
 ### Firebase setup
@@ -61,8 +62,15 @@ Copy `.env.example` into `.env.local` for local development, and add the same va
 3. Turn on the `Email/Password` sign-in provider.
 4. Create your admin user in Firebase Authentication.
 5. Generate a Firebase Admin SDK service account and copy its values into the server-side environment variables.
-6. Enable Firestore in the same Firebase project. The deployed admin panel stores CSV updates there because Vercel's app filesystem is read-only.
+6. Enable Firestore in the same Firebase project.
 7. Add one or more allowed admin emails in `ADMIN_EMAILS` as a comma-separated list.
+
+### Data bootstrap
+
+1. Keep the seed files in `data/csvSeed`.
+2. On the first request for a dataset, the server checks Firestore first.
+3. If a dataset is missing in Firestore, the matching seed CSV is imported once into the `csvFiles` collection.
+4. After that, all dashboard and admin `GET`/`POST`/`PUT`/`DELETE` requests read and write Firestore data.
 
 ### Vercel setup
 
@@ -70,4 +78,4 @@ Copy `.env.example` into `.env.local` for local development, and add the same va
 2. Add the environment variables above.
 3. Redeploy the app.
 4. Open `/admin/login` and sign in with the Firebase admin account.
-5. If you keep `CSV_STORAGE_BACKEND=auto`, local development writes to `public/Clean2` and Vercel writes to Firestore automatically.
+5. The server bundle includes `data/csvSeed`, so Firestore can self-bootstrap without exposing those files publicly.

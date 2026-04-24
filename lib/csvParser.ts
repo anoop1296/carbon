@@ -5,14 +5,8 @@ import { getFirebaseAdminDb, isFirebaseAdminConfigured } from '@/lib/firebaseAdm
 
 export type CsvRow = Record<string, string>;
 
-export const DATA_DIR = path.join(process.cwd(), 'public', 'Clean2');
+export const SEED_DATA_DIR = path.join(process.cwd(), 'data', 'csvSeed');
 const CSV_COLLECTION = 'csvFiles';
-
-function ensureLocalDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
 
 function normalizeFilename(filename: string): string {
   const trimmed = filename.trim();
@@ -31,25 +25,20 @@ function normalizeFilename(filename: string): string {
   return trimmed;
 }
 
-export function resolveCSVPath(filename: string): string {
-  return path.join(DATA_DIR, normalizeFilename(filename));
+function resolveSeedCSVPath(filename: string): string {
+  return path.join(SEED_DATA_DIR, normalizeFilename(filename));
 }
 
-function shouldUseFirestoreStorage() {
-  const backend = process.env.CSV_STORAGE_BACKEND?.trim().toLowerCase();
-
-  if (backend === 'filesystem') {
-    return false;
+function ensureFirestoreAvailable() {
+  if (!isFirebaseAdminConfigured()) {
+    throw new Error(
+      'Firebase admin credentials are required. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY.'
+    );
   }
-
-  if (backend === 'firestore') {
-    return true;
-  }
-
-  return process.env.VERCEL === '1';
 }
 
 function getCsvCollection() {
+  ensureFirestoreAvailable();
   return getFirebaseAdminDb().collection(CSV_COLLECTION);
 }
 
@@ -127,22 +116,27 @@ function escapeCsvValue(value: string): string {
 }
 
 export function upsertRowsByVlcode(existingRows: CsvRow[], newRows: CsvRow[], headers: string[]): CsvRow[] {
-  const VLCODE = 'vlcode';
-  if (!headers.includes(VLCODE)) return [...existingRows, ...newRows];
+  const vlcodeHeader = 'vlcode';
+  if (!headers.includes(vlcodeHeader)) {
+    return [...existingRows, ...newRows];
+  }
+
   const result = existingRows.map((row) => ({ ...row }));
   for (const newRow of newRows) {
-    const newVlcode = (newRow[VLCODE] ?? '').trim();
+    const newVlcode = (newRow[vlcodeHeader] ?? '').trim();
     if (!newVlcode) {
       result.push(normalizeRow(headers, newRow));
       continue;
     }
-    const idx = result.findIndex((r) => (r[VLCODE] ?? '').trim() === newVlcode);
-    if (idx >= 0) {
-      result[idx] = normalizeRow(headers, { ...result[idx], ...newRow });
+
+    const index = result.findIndex((row) => (row[vlcodeHeader] ?? '').trim() === newVlcode);
+    if (index >= 0) {
+      result[index] = normalizeRow(headers, { ...result[index], ...newRow });
     } else {
       result.push(normalizeRow(headers, newRow));
     }
   }
+
   return result;
 }
 
@@ -174,132 +168,114 @@ function parseCsvFile(filename: string, raw: string) {
   return { filename, headers, rows };
 }
 
-function readLocalCSV(filename: string) {
-  const safeName = normalizeFilename(filename);
-  const filePath = resolveCSVPath(safeName);
-
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`CSV not found: ${safeName}`);
-  }
-
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  return parseCsvFile(safeName, raw);
+function normalizeStoredContent(content: string) {
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return normalized ? `${normalized.replace(/\n+$/, '')}\n` : '';
 }
 
-async function readFirestoreCSV(filename: string) {
-  if (!shouldUseFirestoreStorage() || !isFirebaseAdminConfigured()) {
-    return null;
-  }
-
-  const safeName = normalizeFilename(filename);
-  const snapshot = await getCsvCollection().doc(safeName).get();
-  if (!snapshot.exists) {
-    return null;
-  }
-
-  const content = snapshot.get('content');
-  if (typeof content !== 'string') {
-    throw new Error(`Stored CSV content is invalid for ${safeName}.`);
-  }
-
-  return parseCsvFile(safeName, content);
-}
-
-function listLocalCSVFiles(): string[] {
-  if (!fs.existsSync(DATA_DIR)) {
+function listSeedCSVFiles(): string[] {
+  if (!fs.existsSync(SEED_DATA_DIR)) {
     return [];
   }
 
   return fs
-    .readdirSync(DATA_DIR)
-    .filter((entry) => entry.toLowerCase().endsWith('.csv'));
+    .readdirSync(SEED_DATA_DIR)
+    .filter((entry) => entry.toLowerCase().endsWith('.csv'))
+    .sort((a, b) => a.localeCompare(b));
 }
 
-async function listFirestoreCSVFiles(): Promise<string[]> {
-  if (!shouldUseFirestoreStorage() || !isFirebaseAdminConfigured()) {
-    return [];
+async function seedFirestoreCsv(filename: string) {
+  const safeName = normalizeFilename(filename);
+  const seedPath = resolveSeedCSVPath(safeName);
+
+  if (!fs.existsSync(seedPath)) {
+    throw new Error(`Dataset not found in Firestore: ${safeName}`);
   }
 
-  const snapshot = await getCsvCollection().get();
-  return snapshot.docs
-    .map((doc) => doc.id)
-    .filter((filename) => filename.toLowerCase().endsWith('.csv'));
+  const content = normalizeStoredContent(fs.readFileSync(seedPath, 'utf-8'));
+  const parsed = parseCsvFile(safeName, content);
+
+  await getCsvCollection().doc(safeName).set({
+    filename: safeName,
+    content,
+    headers: parsed.headers,
+    rows: parsed.rows,
+    seededFrom: 'data/csvSeed',
+    updatedAt: Date.now(),
+  });
+
+  return parsed;
 }
 
-async function persistToGitHub(filename: string, content: string): Promise<void> {
-  const token = process.env.GITHUB_TOKEN?.trim();
-  const owner = process.env.GITHUB_REPO_OWNER?.trim();
-  const repo = process.env.GITHUB_REPO_NAME?.trim();
-
-  if (!token || !owner || !repo) return;
-
-  const filePath = `public/Clean2/${filename}`;
-  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-    'Content-Type': 'application/json',
-  };
-
-  // Fetch current SHA (needed for updates; absent for new files)
-  let sha: string | undefined;
-  try {
-    const existing = await fetch(apiUrl, { headers });
-    if (existing.ok) {
-      const json = await existing.json() as { sha?: string };
-      sha = json.sha;
-    }
-  } catch {
-    // Network error — skip GitHub sync silently
+async function bootstrapFirestoreFromSeedData() {
+  const seedFiles = listSeedCSVFiles();
+  if (!seedFiles.length) {
     return;
   }
 
-  const encoded = Buffer.from(content, 'utf-8').toString('base64');
-  const body: Record<string, unknown> = {
-    message: `chore: update ${filename} via admin panel`,
-    content: encoded,
-  };
-  if (sha) body.sha = sha;
+  const collection = getCsvCollection();
+  const snapshots = await Promise.all(seedFiles.map((filename) => collection.doc(filename).get()));
 
-  try {
-    await fetch(apiUrl, { method: 'PUT', headers, body: JSON.stringify(body) });
-  } catch {
-    // GitHub write failed — non-fatal; Firestore is source of truth
+  await Promise.all(
+    seedFiles.map(async (filename, index) => {
+      if (snapshots[index]?.exists) {
+        return;
+      }
+
+      await seedFirestoreCsv(filename);
+    })
+  );
+}
+
+async function readFirestoreCSV(filename: string) {
+  const safeName = normalizeFilename(filename);
+  const snapshot = await getCsvCollection().doc(safeName).get();
+
+  if (!snapshot.exists) {
+    return seedFirestoreCsv(safeName);
   }
+
+  const content = snapshot.get('content');
+  if (typeof content === 'string') {
+    return parseCsvFile(safeName, content);
+  }
+
+  const headers = snapshot.get('headers');
+  const rows = snapshot.get('rows');
+  if (Array.isArray(headers) && Array.isArray(rows)) {
+    const normalizedHeaders = headers.map((header) => String(header).trim()).filter(Boolean);
+    const normalizedRows = rows.map((row) => normalizeRow(normalizedHeaders, row as Record<string, unknown>));
+    return {
+      filename: safeName,
+      headers: normalizedHeaders,
+      rows: normalizedRows,
+    };
+  }
+
+  throw new Error(`Stored Firestore data is invalid for ${safeName}.`);
+}
+
+async function listFirestoreCSVFiles(): Promise<string[]> {
+  await bootstrapFirestoreFromSeedData();
+  const snapshot = await getCsvCollection().get();
+  return snapshot.docs
+    .map((doc) => doc.id)
+    .filter((filename) => filename.toLowerCase().endsWith('.csv'))
+    .sort((a, b) => a.localeCompare(b));
 }
 
 async function persistCSVContent(filename: string, content: string) {
   const safeName = normalizeFilename(filename);
-  const fileContent = content ? `${content}\n` : '';
+  const normalizedContent = normalizeStoredContent(content);
+  const parsed = parseCsvFile(safeName, normalizedContent);
 
-  // Always write to the local public/Clean2 directory so the dashboard's
-  // static CSV reads stay in sync. On Vercel (read-only FS) this fails
-  // silently — Firestore below becomes the source of truth there.
-  try {
-    ensureLocalDataDir();
-    fs.writeFileSync(resolveCSVPath(safeName), fileContent, 'utf-8');
-  } catch {
-    // Read-only filesystem (e.g. Vercel production) — skip silently.
-  }
-
-  // Also persist to Firestore when cloud storage is configured.
-  if (shouldUseFirestoreStorage()) {
-    if (!isFirebaseAdminConfigured()) {
-      throw new Error(
-        'CSV cloud storage is enabled for this deployment, but Firebase admin credentials are missing.'
-      );
-    }
-
-    await getCsvCollection().doc(safeName).set({
-      filename: safeName,
-      content: fileContent,
-      updatedAt: Date.now(),
-    });
-  }
-
-  // Commit updated CSV back to GitHub so public/Clean2 stays in sync with Firestore.
-  await persistToGitHub(safeName, fileContent);
+  await getCsvCollection().doc(safeName).set({
+    filename: safeName,
+    content: normalizedContent,
+    headers: parsed.headers,
+    rows: parsed.rows,
+    updatedAt: Date.now(),
+  });
 }
 
 export async function parseCSV(filename: string): Promise<CsvRow[]> {
@@ -308,19 +284,14 @@ export async function parseCSV(filename: string): Promise<CsvRow[]> {
 }
 
 export async function readCSV(filename: string): Promise<{ filename: string; headers: string[]; rows: CsvRow[] }> {
-  const safeName = normalizeFilename(filename);
-  const firestoreCsv = await readFirestoreCSV(safeName);
-
-  if (firestoreCsv) {
-    return firestoreCsv;
-  }
-
-  return readLocalCSV(safeName);
+  ensureFirestoreAvailable();
+  return readFirestoreCSV(filename);
 }
 
 export async function listCSVFiles(): Promise<string[]> {
-  const [localFiles, firestoreFiles] = await Promise.all([Promise.resolve(listLocalCSVFiles()), listFirestoreCSVFiles()]);
-  return Array.from(new Set([...localFiles, ...firestoreFiles])).sort((a, b) => a.localeCompare(b));
+  ensureFirestoreAvailable();
+  const [firestoreFiles, seedFiles] = await Promise.all([listFirestoreCSVFiles(), Promise.resolve(listSeedCSVFiles())]);
+  return Array.from(new Set([...seedFiles, ...firestoreFiles])).sort((a, b) => a.localeCompare(b));
 }
 
 function collectHeaders(existingHeaders: string[], row: Record<string, unknown>): string[] {

@@ -47,7 +47,7 @@ function wideToParams(
         });
       }
     }
-  }
+  }            
   return result;
 }
 
