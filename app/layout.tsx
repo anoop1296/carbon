@@ -1,6 +1,7 @@
 // app/layout.tsx
 import type { Metadata, Viewport } from 'next';
 import { Libre_Baskerville, Playfair_Display } from 'next/font/google';
+// @ts-ignore: side-effect css import declaration
 import './globals.css';
 
 const metadataBase = new URL(
