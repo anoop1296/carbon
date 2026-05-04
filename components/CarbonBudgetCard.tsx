@@ -10,7 +10,7 @@ export interface BudgetRow {
   unit?: string;
 }
 
-const COLORS = ['#e2711d','#c8920a','#3460c8','#1a8a50','#7830c8','#d01840','#0a8a90','#d06010','#2d6a4f','#b05010'];
+const COLORS = ['#990606','#c8920a','#3460c8','#1a8a50','#7830c8','#d01840','#0a8a90','#d06010','#2d6a4f','#b05010'];
 const PILL   = [
   'bg-[#fff0e8] text-[#b05010] border-[#f4b896]',
   'bg-[#fffbec] text-[#8a6208] border-[#f5d78a]',
@@ -34,6 +34,20 @@ function arc(cx: number, cy: number, R: number, ri: number, s: number, e: number
 }
 
 type Slice = { label: string; value: number; color: string; i: number };
+
+const normalizeParam = (param: string) => param.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const isBaselinePieParam = (row: BudgetRow) => {
+  const p = normalizeParam(row.parameter);
+  return p === 'net_emission' || p === 'total_sequestration';
+};
+const isAfterPieParam = (row: BudgetRow) => {
+  const p = normalizeParam(row.parameter);
+  return p === 'total_emission_reduction' || p === 'total_sequestration_increase' || p === 'new_net_emission';
+};
+const toSlices = (rows: BudgetRow[]) =>
+  rows.length
+    ? rows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: COLORS[i % COLORS.length], i }))
+    : [{ label: 'No Data', value: 1, color: '#e4e2dd', i: 0 }];
 
 function Donut({ slices, label }: { slices: Slice[]; label: string }) {
   const [hov, setHov] = useState<number | null>(null);
@@ -74,16 +88,16 @@ export default function CarbonBudgetCard({ before, after }: {
 }) {
   const bRows = useMemo(() => (before || []).filter(r => parseFloat(r.value || '0') !== 0), [before]);
   const aRows = useMemo(() => (after  || []).filter(r => parseFloat(r.value || '0') !== 0), [after]);
+  const bPieRows = useMemo(() => bRows.filter(isBaselinePieParam), [bRows]);
+  const aPieRows = useMemo(() => aRows.filter(isAfterPieParam), [aRows]);
 
-  const bSlices: Slice[] = useMemo(() =>
-    bRows.length ? bRows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: COLORS[i % COLORS.length], i }))
-    : [{ label: 'No Data', value: 1, color: '#e4e2dd', i: 0 }], [bRows]);
-  const aSlices: Slice[] = useMemo(() =>
-    aRows.length ? aRows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: COLORS[i % COLORS.length], i }))
-    : [{ label: 'No Data', value: 1, color: '#e4e2dd', i: 0 }], [aRows]);
+  const bSlices: Slice[] = useMemo(() => toSlices(bPieRows), [bPieRows]);
+  const aSlices: Slice[] = useMemo(() => toSlices(aPieRows), [aPieRows]);
 
-  const bTotal = bSlices.reduce((s, x) => s + x.value, 0);
-  const aTotal = aSlices.reduce((s, x) => s + x.value, 0);
+  const bTotal = bRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
+  const aTotal = aRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
+  const bPieTotal = bSlices.reduce((s, x) => s + x.value, 0);
+  const aPieTotal = aSlices.reduce((s, x) => s + x.value, 0);
   const redPct = bTotal > 0 ? ((bTotal - aTotal) / bTotal) * 100 : 0;
 
   return (
@@ -157,8 +171,8 @@ export default function CarbonBudgetCard({ before, after }: {
         {/* donuts */}
         <div className="grid gap-5 lg:grid-cols-2">
           {[
-            { slices: bSlices, total: bTotal, label: 'Baseline (Before)' },
-            { slices: aSlices, total: aTotal, label: 'After Intervention' },
+            { slices: bSlices, total: bPieTotal, label: 'Baseline (Before)' },
+            { slices: aSlices, total: aPieTotal, label: 'After Intervention' },
           ].map(({ slices, total: tot, label }) => (
             <div key={label} className="space-y-3">
               <Donut slices={slices} label={label} />

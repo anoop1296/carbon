@@ -130,7 +130,7 @@ export function SequestrationCard({ before, after }: {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-black text-[#1a1a1a] truncate">{r.intervention}</p>
                           <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-[#6b6860]">
-                            <span>{Number(r.area_added_ha || 0).toFixed(1)} ha</span>
+                           
                             <span>{Number(r.sequestration_factor || 0).toFixed(0)} kg/ha/yr</span>
                             {extras.map(([k, v]) => (
                               <span key={k}>{k.replace(/_/g,' ')}: {v}</span>

@@ -299,8 +299,8 @@ export default function Dashboard() {
         <div className="flex items-center gap-2.5 border-b border-[#f0ede8] px-4 py-4">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#2d6a4f] text-sm font-black text-white">C</span>
           <div>
-            <p className="text-sm font-black text-[#1a1a1a]">Carbon DSS</p>
-            <p className="text-[10px] text-[#6b6860]">SLCR · Varanasi</p>
+            <p className="text-sm font-black text-[#1a1a1a]">Carbon</p>
+            <p className="text-[10px] text-[#6b6860]">SLCR</p>
           </div>
           {isMobile && (
             <button onClick={() => setSidebarOpen(false)} className="ml-auto text-[#6b6860] hover:text-[#1a1a1a]">✕</button>
