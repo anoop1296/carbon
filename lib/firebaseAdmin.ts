@@ -30,5 +30,9 @@ export function getFirebaseAdminApp(): App {
 }
 
 export function getFirebaseAdminDb(): Firestore {
-  return getFirestore(getFirebaseAdminApp());
+  const db = getFirestore(getFirebaseAdminApp());
+  // preferRest bypasses the gRPC connection pool so every read hits
+  // Firestore directly — no stale cached snapshots after a write.
+  try { db.settings({ preferRest: true }); } catch { /* already set */ }
+  return db;
 }

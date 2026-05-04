@@ -116,6 +116,10 @@ export default function AdminPage() {
   const [showAddCol, setShowAddCol] = useState(false);
   const [newColName, setNewColName] = useState('');
 
+  // csv upload
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
   // delete-village confirm
   const [confirmDeleteVl, setConfirmDeleteVl] = useState(false);
 
@@ -163,6 +167,16 @@ export default function AdminPage() {
     });
     const d = await res.json();
     if (!res.ok || !d.success) throw new Error(d.error || 'Failed to delete.');
+    return d as { headers: string[]; rows: CsvRow[] };
+  }
+
+  async function apiDeleteCol(file: string, colName: string) {
+    const res = await fetch(`/api/admin/csv/${encodeURIComponent(file)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ colName }),
+    });
+    const d = await res.json();
+    if (!res.ok || !d.success) throw new Error(d.error || 'Failed to delete column.');
     return d as { headers: string[]; rows: CsvRow[] };
   }
 
@@ -366,6 +380,57 @@ export default function AdminPage() {
     }
   }
 
+  // ── delete column ────────────────────────────────────────────────────────
+  async function handleDeleteColumn(col: string) {
+    if (col === VL_CODE || col === VL_NAME) {
+      showToast('err', `Cannot delete primary key or name column.`); return;
+    }
+    if (!confirm(`Delete column "${col}" from "${activeFile}"?\n\nThis will remove this column from ALL rows permanently.`)) return;
+    setSaving(true);
+    try {
+      const d = await apiDeleteCol(activeFile, col);
+      setHeaders(d.headers);
+      setRows(d.rows);
+      showToast('ok', `Column "${col}" deleted.`);
+      if (activeFile === MASTER_FILE) await loadVillages(activeVlcode);
+    } catch (e) {
+      showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── upload CSV ────────────────────────────────────────────────────────────
+  async function handleUploadCSV(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!uploadInputRef.current) return;
+    uploadInputRef.current.value = '';
+    if (!file) return;
+
+    // Use the active file as the target so the upload merges into the right dataset
+    const targetFilename = activeFile;
+
+    if (!confirm(`Upload "${file.name}" and merge into "${targetFilename}"?\n\nNew rows will be added, existing rows updated, and any new columns will be appended.`)) return;
+
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('filename', targetFilename);
+      const res = await fetch('/api/admin/upload-csv', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Upload failed.');
+      setHeaders(d.headers);
+      setRows(d.rows);
+      showToast('ok', d.message || `Merged: ${d.rowCount} rows × ${d.colCount} cols`);
+      if (activeFile === MASTER_FILE) await loadVillages(activeVlcode);
+    } catch (err) {
+      showToast('err', normalizeError(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function handleLogout() {
     setLoggingOut(true);
     try {
@@ -406,6 +471,15 @@ export default function AdminPage() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-900">
+
+      {/* hidden file input for CSV uploads */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={handleUploadCSV}
+      />
 
       {/* ── TOAST ── */}
       {toast && (
@@ -518,6 +592,14 @@ export default function AdminPage() {
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => uploadInputRef.current?.click()}
+                disabled={uploading || saving}
+                title={`Upload a CSV to merge into ${activeFile}`}
+                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                {uploading ? 'Uploading…' : '↑ Upload CSV'}
+              </button>
+              <button
                 onClick={() => setShowAddCol(true)}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
               >
@@ -562,11 +644,26 @@ export default function AdminPage() {
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-slate-800 text-white">
                     <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
-                    {visibleHeaders.map((h) => (
-                      <th key={h} className="whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
-                        {toLabel(h)}
-                      </th>
-                    ))}
+                    {visibleHeaders.map((h) => {
+                      const isProtected = h === VL_CODE || h === VL_NAME;
+                      return (
+                        <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
+                          <div className="flex items-center gap-1.5">
+                            <span>{toLabel(h)}</span>
+                            {!isProtected && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteColumn(h)}
+                                title={`Delete column "${h}"`}
+                                className="hidden rounded px-1 py-0.5 text-[9px] font-bold text-red-300 opacity-0 transition hover:bg-red-800 hover:text-red-100 group-hover:block group-hover:opacity-100"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </th>
+                      );
+                    })}
                     <th className="w-14 px-3 py-2.5 text-[10px] font-semibold text-slate-400">Del</th>
                   </tr>
                 </thead>

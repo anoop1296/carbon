@@ -5,8 +5,12 @@ import { getFirebaseAdminDb, isFirebaseAdminConfigured } from '@/lib/firebaseAdm
 
 export type CsvRow = Record<string, string>;
 
-export const SEED_DATA_DIR = path.join(process.cwd(), 'data', 'csvSeed');
+export const SEED_DATA_DIR = path.join(process.cwd(), 'csvSeed');
 const CSV_COLLECTION = 'csvFiles';
+
+// Write-through cache: after every write we store the result here so the
+// immediate next read (same process) always returns the freshly written data.
+const writeCache = new Map<string, { filename: string; headers: string[]; rows: CsvRow[] }>();
 
 function normalizeFilename(filename: string): string {
   const trimmed = filename.trim();
@@ -230,6 +234,12 @@ async function bootstrapFirestoreFromSeedData() {
 
 async function readFirestoreCSV(filename: string) {
   const safeName = normalizeFilename(filename);
+
+  // Return write-through cache hit immediately — guarantees freshness after
+  // any write in the same process without waiting for Firestore propagation.
+  const cached = writeCache.get(safeName);
+  if (cached) return cached;
+
   const snapshot = await getCsvCollection().doc(safeName).get();
 
   if (!snapshot.exists) {
@@ -277,6 +287,12 @@ async function persistCSVContent(filename: string, content: string) {
     rows: parsed.rows,
     updatedAt: Date.now(),
   });
+
+  // Populate write-through cache so next read in same process is instant & fresh.
+  writeCache.set(safeName, { filename: safeName, headers: parsed.headers, rows: parsed.rows });
+
+  // Clear after 10 s so subsequent cold reads go back to Firestore.
+  setTimeout(() => writeCache.delete(safeName), 10_000);
 }
 
 export async function parseCSV(filename: string): Promise<CsvRow[]> {
@@ -389,4 +405,18 @@ export async function deleteCSVRow(filename: string, rowIndex: number) {
     .map((row) => normalizeRow(current.headers, row));
 
   return writeCSV(filename, current.headers, rows);
+}
+
+export async function deleteCSVColumn(filename: string, colName: string) {
+  const current = await readCSV(filename);
+
+  const trimmed = colName.trim();
+  if (!trimmed) throw new Error('Column name is required.');
+  if (current.headers.length <= 1) throw new Error('Cannot delete the last column.');
+  if (!current.headers.includes(trimmed)) throw new Error(`Column "${trimmed}" not found.`);
+
+  const newHeaders = current.headers.filter((h) => h !== trimmed);
+  const newRows = current.rows.map((row) => normalizeRow(newHeaders, row));
+
+  return writeCSV(filename, newHeaders, newRows);
 }

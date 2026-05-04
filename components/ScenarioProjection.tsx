@@ -12,153 +12,96 @@ export interface ScenarioRow {
   business_as_usual: string;
   line_of_sight: string;
   accelerated: string;
+  [key: string]: string;
 }
 
-function toNum(v: string): number {
-  const n = parseFloat(v || '0');
-  return Number.isFinite(n) ? n : 0;
-}
+function n(v: string) { const x = parseFloat(v || '0'); return isFinite(x) ? x : 0; }
+
+const SCENARIO_DEFS = {
+  business_as_usual: { label: 'Business as Usual', short: 'BAU', color: '#d01840', dash: 'solid' as const,  border: 'border-[#f4a0b0]', bg: 'bg-[#ffecf0]', txt: 'text-[#a01030]', sub: 'text-[#c03050]' },
+  line_of_sight:     { label: 'Line of Sight',      short: 'LOS', color: '#c8920a', dash: 'dash'  as const,  border: 'border-[#f5d78a]', bg: 'bg-[#fffbec]', txt: 'text-[#8a6208]', sub: 'text-[#a07010]' },
+  accelerated:       { label: 'Accelerated',         short: 'ACC', color: '#1a8a50', dash: 'dot'   as const,  border: 'border-[#96dbb4]', bg: 'bg-[#edfaf3]', txt: 'text-[#106030]', sub: 'text-[#1a8a50]' },
+};
+const SCENARIO_KEYS = Object.keys(SCENARIO_DEFS) as (keyof typeof SCENARIO_DEFS)[];
 
 export default function ScenarioProjection({ rows }: { rows: ScenarioRow[] | null | undefined }) {
-  const [isNarrow, setIsNarrow] = useState(false);
-
+  const [narrow, setNarrow] = useState(false);
   useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth < 640);
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const fn = () => setNarrow(window.innerWidth < 640);
+    fn(); window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
   }, []);
 
-  if (!rows || rows.length === 0) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
-        No scenario data available
-      </div>
-    );
-  }
+  if (!rows?.length) return (
+    <div className="rounded-2xl border border-[#e4e2dd] bg-white p-12 text-center text-sm text-[#6b6860]">No scenario data</div>
+  );
 
-  const years = rows.map((row) => row.year);
-  const bau = rows.map((row) => toNum(row.business_as_usual) / 1000);
-  const los = rows.map((row) => toNum(row.line_of_sight) / 1000);
-  const acc = rows.map((row) => toNum(row.accelerated) / 1000);
-  const finalIndex = Math.max(years.length - 1, 0);
-  const finalYear = years[finalIndex];
-  const bauFinal = bau[finalIndex] || 0;
-  const losFinal = los[finalIndex] || 0;
-  const accFinal = acc[finalIndex] || 0;
-  const bestDrop = bauFinal - accFinal;
+  const first = rows[0];
+  const activeKeys = SCENARIO_KEYS.filter(k => k in first);
+  const years = rows.map(r => r.year);
+  const lastIdx = years.length - 1;
+  const lastYear = years[lastIdx];
 
-  const data = [
-    {
-      x: years,
-      y: bau,
-      type: 'scatter',
-      mode: 'lines+markers',
-      name: 'Business as Usual',
-      line: { color: '#ef4444', width: 3 },
-      marker: { size: 7, color: '#ef4444' },
-      hovertemplate: 'Year: %{x}<br>BAU: %{y:.2f} t<extra></extra>',
-    },
-    {
-      x: years,
-      y: los,
-      type: 'scatter',
-      mode: 'lines+markers',
-      name: 'Line of Sight',
-      line: { color: '#f59e0b', width: 3, dash: 'dash' },
-      marker: { size: 7, color: '#f59e0b' },
-      hovertemplate: 'Year: %{x}<br>LoS: %{y:.2f} t<extra></extra>',
-    },
-    {
-      x: years,
-      y: acc,
-      type: 'scatter',
-      mode: 'lines+markers',
-      name: 'Accelerated',
-      line: { color: '#10b981', width: 3, dash: 'dot' },
-      marker: { size: 7, color: '#10b981' },
-      hovertemplate: 'Year: %{x}<br>ACC: %{y:.2f} t<extra></extra>',
-    },
-  ];
+  const series = activeKeys.map(k => {
+    const def = SCENARIO_DEFS[k];
+    const vals = rows.map(r => n(r[k]) / 1000);
+    return { k, def, vals, last: vals[lastIdx] || 0 };
+  });
+
+  const bauLast = series.find(s => s.k === 'business_as_usual')?.last || 0;
+  const accLast = series.find(s => s.k === 'accelerated')?.last || 0;
+
+  const plotData = series.map(({ def, vals }) => ({
+    x: years, y: vals,
+    type: 'scatter', mode: 'lines+markers', name: def.label,
+    line: { color: def.color, width: 2.5, dash: def.dash },
+    marker: { size: 6, color: def.color, line: { color: 'white', width: 1.5 } },
+    hovertemplate: `<b>%{x}</b><br>${def.short}: %{y:.1f} t<extra></extra>`,
+  }));
 
   const layout = {
-    paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: '#ffffff',
-    margin: { l: isNarrow ? 44 : 68, r: isNarrow ? 16 : 28, t: isNarrow ? 34 : 22, b: isNarrow ? 52 : 60 },
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#ffffff',
+    margin: { l: narrow ? 42 : 58, r: 16, t: narrow ? 36 : 20, b: narrow ? 50 : 56 },
     hovermode: 'x unified',
-    legend: {
-      orientation: 'h',
-      x: 0,
-      xanchor: 'left',
-      y: isNarrow ? 1.12 : 1.1,
-      font: { color: '#475569', size: isNarrow ? 10 : 12 },
-    },
-    xaxis: {
-      title: { text: 'Year', font: { color: '#475569', size: isNarrow ? 11 : 13 } },
-      tickfont: { color: '#475569', size: isNarrow ? 10 : 12 },
-      gridcolor: '#e2e8f0',
-      zeroline: false,
-      linecolor: '#cbd5e1',
-    },
-    yaxis: {
-      title: { text: 'CO2e (tons/year)', font: { color: '#475569', size: isNarrow ? 11 : 13 } },
-      tickfont: { color: '#475569', size: isNarrow ? 10 : 12 },
-      gridcolor: '#e2e8f0',
-      zeroline: false,
-      linecolor: '#cbd5e1',
-    },
-    font: { color: '#0f172a', family: 'system-ui, sans-serif' },
+    legend: { orientation: 'h', x: 0, xanchor: 'left', y: narrow ? 1.14 : 1.1, font: { color: '#4a4840', size: 11 }, bgcolor: 'rgba(0,0,0,0)' },
+    xaxis: { title: { text: 'Year', font: { color: '#6b6860', size: 11 } }, tickfont: { color: '#6b6860', size: 10 }, gridcolor: '#f0ede8', linecolor: '#e4e2dd', zeroline: false },
+    yaxis: { title: { text: 'CO₂e (t/yr)', font: { color: '#6b6860', size: 11 } }, tickfont: { color: '#6b6860', size: 10 }, gridcolor: '#f0ede8', linecolor: '#e4e2dd', zeroline: false },
+    font: { family: 'system-ui, sans-serif', color: '#1a1a1a' },
     autosize: true,
   };
 
-  const config = {
-    responsive: true,
-    displayModeBar: false,
-    displaylogo: false,
-  };
-
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-      <div className="mb-4">
-        <h3 className="text-lg font-bold text-slate-900">Scenario Projection</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          Year-wise comparison across baseline and intervention pathways
-        </p>
+    <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
+      <div className="border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4">
+        <h3 className="text-lg font-black text-[#1a1a1a]">Scenario Projections</h3>
+        <p className="mt-0.5 text-xs text-[#6b6860]">Year-wise pathways · scenarios auto-detected from CSV</p>
       </div>
+      <div className="p-5 md:p-6 space-y-5">
+        {/* KPI cards — only renders scenarios present in the data */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {series.map(({ k, def, last }) => (
+            <div key={k} className={`rounded-xl border px-4 py-3 ${def.border} ${def.bg}`}>
+              <p className={`text-[9px] font-bold uppercase tracking-widest ${def.sub}`}>{def.short} · {lastYear}</p>
+              <p className={`mt-1 text-2xl font-black ${def.txt}`}>{last.toFixed(1)}</p>
+              <p className={`text-[10px] ${def.sub}`}>{def.label}</p>
+            </div>
+          ))}
+          {bauLast > 0 && accLast > 0 && (
+            <div className="rounded-xl border border-[#96dbb4] bg-[#edfaf3] px-4 py-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-[#1a8a50]">Max Reduction</p>
+              <p className="mt-1 text-2xl font-black text-[#106030]">{(bauLast - accLast).toFixed(1)} t</p>
+              <p className="text-[10px] text-[#1a8a50]">BAU vs ACC</p>
+            </div>
+          )}
+        </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-red-600">
-            BAU {finalYear}
-          </div>
-          <div className="mt-1 text-xl font-bold text-red-700">{bauFinal.toFixed(2)} t</div>
-          <div className="text-xs text-red-500">business as usual</div>
-        </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-600">
-            LOS {finalYear}
-          </div>
-          <div className="mt-1 text-xl font-bold text-amber-700">{losFinal.toFixed(2)} t</div>
-          <div className="text-xs text-amber-500">line of sight</div>
-        </div>
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-600">
-            Best Drop
-          </div>
-          <div className="mt-1 text-xl font-bold text-emerald-700">{bestDrop.toFixed(2)} t</div>
-          <div className="text-xs text-emerald-500">BAU vs accelerated</div>
+        {/* chart */}
+        <div className="min-h-[320px] rounded-xl border border-[#e4e2dd] bg-white p-3 md:min-h-[380px]">
+          <Plot data={plotData as never[]} layout={layout as never}
+            config={{ responsive: true, displayModeBar: false }}
+            className="h-full w-full" useResizeHandler />
         </div>
       </div>
-
-      <div className="min-h-[320px] rounded-2xl border border-slate-200 bg-white p-3 md:min-h-[380px] md:p-4">
-        <Plot
-          data={data as never[]}
-          layout={layout as never}
-          config={config as never}
-          className="h-full w-full"
-          useResizeHandler
-        />
-      </div>
-    </section>
+    </div>
   );
 }

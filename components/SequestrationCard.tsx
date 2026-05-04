@@ -1,185 +1,157 @@
 'use client';
 
 export interface SeqBeforeRow {
-  vlcode: string;
-  village_name: string;
-  source: string;
-  area_ha: string;
-  annual_co2_sequestered_kg: string;
+  vlcode: string; village_name: string; source: string;
+  area_ha: string; annual_co2_sequestered_kg: string;
+  [key: string]: string;
 }
-
 export interface SeqAfterRow {
-  vlcode: string;
-  village_name: string;
-  type: string;
-  intervention: string;
-  area_added_ha: string;
-  sequestration_factor: string;
+  vlcode: string; village_name: string; type: string; intervention: string;
+  area_added_ha: string; sequestration_factor: string;
   annual_co2_sequestration_kg: string;
+  [key: string]: string;
 }
 
-const WIDTH_CLASSES = [
-  'w-0', 'w-[5%]', 'w-[10%]', 'w-[15%]', 'w-[20%]', 'w-[25%]',
-  'w-[30%]', 'w-[35%]', 'w-[40%]', 'w-[45%]', 'w-1/2',
-  'w-[55%]', 'w-[60%]', 'w-[65%]', 'w-[70%]', 'w-[75%]',
-  'w-[80%]', 'w-[85%]', 'w-[90%]', 'w-[95%]', 'w-full',
-] as const;
-
-const PALETTE = [
-  { card: 'bg-emerald-50 border-emerald-200', pill: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-600', track: 'bg-emerald-100', fill: 'bg-emerald-500' },
-  { card: 'bg-amber-50 border-amber-200',     pill: 'bg-amber-100 text-amber-700',     text: 'text-amber-600',  track: 'bg-amber-100',  fill: 'bg-amber-500'  },
-  { card: 'bg-blue-50 border-blue-200',       pill: 'bg-blue-100 text-blue-700',       text: 'text-blue-600',   track: 'bg-blue-100',   fill: 'bg-blue-500'   },
-  { card: 'bg-cyan-50 border-cyan-200',       pill: 'bg-cyan-100 text-cyan-700',       text: 'text-cyan-600',   track: 'bg-cyan-100',   fill: 'bg-cyan-500'   },
-  { card: 'bg-violet-50 border-violet-200',   pill: 'bg-violet-100 text-violet-700',   text: 'text-violet-600', track: 'bg-violet-100', fill: 'bg-violet-500' },
-  { card: 'bg-teal-50 border-teal-200',       pill: 'bg-teal-100 text-teal-700',       text: 'text-teal-600',   track: 'bg-teal-100',   fill: 'bg-teal-500'   },
-  { card: 'bg-pink-50 border-pink-200',       pill: 'bg-pink-100 text-pink-700',       text: 'text-pink-600',   track: 'bg-pink-100',   fill: 'bg-pink-500'   },
-  { card: 'bg-indigo-50 border-indigo-200',   pill: 'bg-indigo-100 text-indigo-700',   text: 'text-indigo-600', track: 'bg-indigo-100', fill: 'bg-indigo-500' },
-  { card: 'bg-slate-50 border-slate-200',     pill: 'bg-slate-100 text-slate-700',     text: 'text-slate-600',  track: 'bg-slate-100',  fill: 'bg-slate-500'  },
+const AFTER_COLORS = [
+  { bg: '#edfaf3', border: '#96dbb4', bar: '#1a8a50', text: '#106030', pill: 'bg-[#d4f4e4] text-[#106030] border-[#96dbb4]' },
+  { bg: '#fffbec', border: '#f5d78a', bar: '#c8920a', text: '#8a6208', pill: 'bg-[#fef8e0] text-[#8a6208] border-[#f5d78a]' },
+  { bg: '#eef3ff', border: '#b8ccf4', bar: '#3460c8', text: '#2040a0', pill: 'bg-[#dce8ff] text-[#2040a0] border-[#b8ccf4]' },
+  { bg: '#ecfcfc', border: '#8cd8d8', bar: '#0a8a90', text: '#066066', pill: 'bg-[#d0f8f8] text-[#066066] border-[#8cd8d8]' },
+  { bg: '#f8eeff', border: '#d0a8f4', bar: '#7830c8', text: '#5020a0', pill: 'bg-[#eedcff] text-[#5020a0] border-[#d0a8f4]' },
+  { bg: '#fef4ec', border: '#f0c090', bar: '#d06010', text: '#904008', pill: 'bg-[#fde8d0] text-[#904008] border-[#f0c090]' },
 ];
 
-function getWidthClass(percent: number): string {
-  return WIDTH_CLASSES[Math.round(Math.max(0, Math.min(100, percent)) / 5)];
-}
+const KNOWN_BEFORE = new Set(['vlcode','village_name','source','area_ha','annual_co2_sequestered_kg']);
+const KNOWN_AFTER  = new Set(['vlcode','village_name','type','intervention','area_added_ha','sequestration_factor','annual_co2_sequestration_kg']);
 
-function badgeText(text: string): string {
-  return text
-    .split(/\s+/)
-    .map((w) => w[0] || '')
-    .join('')
-    .toUpperCase()
-    .slice(0, 3) || 'GEN';
-}
+function initials(s: string) { return s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3) || 'SEQ'; }
 
-export function SequestrationCard({
-  before,
-  after,
-}: {
-  before: SeqBeforeRow[] | null | undefined;
-  after: SeqAfterRow[] | null | undefined;
+export function SequestrationCard({ before, after }: {
+  before: SeqBeforeRow[] | null | undefined; after: SeqAfterRow[] | null | undefined;
 }) {
-  const beforeRows = before || [];
-  const afterRows  = (after || []).filter((row) => row.type || row.intervention);
+  const bRows = before || [];
+  const aRows = (after || []).filter(r => r.type || r.intervention);
 
-  // Stable color index per type
-  const typeColorIdx = new Map<string, number>();
-  afterRows.forEach((row) => {
-    if (!typeColorIdx.has(row.type)) typeColorIdx.set(row.type, typeColorIdx.size);
-  });
+  const typeIdx = new Map<string, number>();
+  aRows.forEach(r => { if (!typeIdx.has(r.type)) typeIdx.set(r.type, typeIdx.size); });
 
-  const existingTotalKg = beforeRows.reduce(
-    (sum, row) => sum + (parseFloat(row.annual_co2_sequestered_kg || '0') || 0),
-    0
-  );
-  const addedTotalKg = afterRows.reduce(
-    (sum, row) => sum + (parseFloat(row.annual_co2_sequestration_kg || '0') || 0),
-    0
-  );
-  const addedArea = afterRows.reduce(
-    (sum, row) => sum + (parseFloat(row.area_added_ha || '0') || 0),
-    0
-  );
-  const topAdded = Math.max(
-    ...afterRows.map((row) => parseFloat(row.annual_co2_sequestration_kg || '0') || 0),
-    1
-  );
+  const bTotal = bRows.reduce((s, r) => s + (parseFloat(r.annual_co2_sequestered_kg || '0') || 0), 0);
+  const aTotal = aRows.reduce((s, r) => s + (parseFloat(r.annual_co2_sequestration_kg || '0') || 0), 0);
+  const aArea  = aRows.reduce((s, r) => s + (parseFloat(r.area_added_ha || '0') || 0), 0);
+  const bMax   = Math.max(...bRows.map(r => parseFloat(r.annual_co2_sequestered_kg || '0') || 0), 1);
+  const aMax   = Math.max(...aRows.map(r => parseFloat(r.annual_co2_sequestration_kg || '0') || 0), 1);
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-      <div className="border-b border-slate-100 pb-5">
-        <h3 className="text-xl font-bold text-slate-900">Sequestration</h3>
-        <p className="mt-1 text-sm text-slate-500">Existing sink vs added interventions</p>
+    <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
+      {/* header */}
+      <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-[#1a1a1a]">Carbon Sequestration</h3>
+          <p className="mt-0.5 text-xs text-[#6b6860]">Natural sinks + intervention planting · auto-detected fields</p>
+        </div>
+        <div className="flex gap-3">
+          <div className="rounded-xl border border-[#f5d78a] bg-[#fffbec] px-4 py-2 text-center">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#8a6208]">Existing</p>
+            <p className="mt-0.5 text-xl font-black text-[#c8920a]">{(bTotal / 1000).toFixed(1)} t</p>
+          </div>
+          <div className="rounded-xl border border-[#96dbb4] bg-[#edfaf3] px-4 py-2 text-center">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-[#106030]">Added</p>
+            <p className="mt-0.5 text-xl font-black text-[#1a8a50]">{(aTotal / 1000).toFixed(1)} t</p>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-4 p-5 md:p-6 xl:grid-cols-2">
         {/* BEFORE */}
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <div className="flex flex-col gap-2 border-b border-amber-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="overflow-hidden rounded-xl border border-[#f5d78a] bg-[#fffbec]">
+          <div className="flex items-center justify-between border-b border-[#f5d78a]/60 px-4 py-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Existing Sequestration</div>
-              <div className="mt-1 text-sm text-amber-700/80">Current village sink sources</div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#8a6208]">Existing Sequestration</p>
+              <p className="text-[10px] text-[#a07010]">Natural sinks</p>
             </div>
-            <div className="text-3xl font-bold text-amber-700">{(existingTotalKg / 1000).toFixed(1)} t</div>
+            <p className="text-xl font-black text-[#c8920a]">{(bTotal / 1000).toFixed(1)} t</p>
           </div>
-
-          <div className="mt-4 space-y-3">
-            {beforeRows.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-amber-200 bg-white/70 p-6 text-center text-sm text-slate-500">
-                No existing sequestration data available
-              </div>
-            ) : (
-              beforeRows.map((row, index) => {
-                const value   = parseFloat(row.annual_co2_sequestered_kg || '0') || 0;
-                const percent = existingTotalKg > 0 ? (value / existingTotalKg) * 100 : 0;
-                return (
-                  <div key={`${row.source}-${index}`} className="rounded-xl border border-amber-200 bg-white/80 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-slate-900">{row.source || 'Unknown'}</div>
-                      <div className="text-sm font-bold text-amber-700">{(value / 1000).toFixed(2)} t</div>
+          <div className="space-y-2 p-3">
+            {bRows.length === 0
+              ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
+              : bRows.map((r, i) => {
+                  const v = parseFloat(r.annual_co2_sequestered_kg || '0') || 0;
+                  const sh = bTotal > 0 ? (v / bTotal) * 100 : 0;
+                  const rel = (v / bMax) * 100;
+                  const extras = Object.entries(r).filter(([k]) => !KNOWN_BEFORE.has(k) && r[k]?.trim());
+                  return (
+                    <div key={i} className="rounded-lg border border-white bg-white px-3 py-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-black text-[#1a1a1a]">{r.source || 'Unknown'}</p>
+                          <p className="text-[10px] text-[#6b6860]">{Number(r.area_ha || 0).toFixed(1)} ha</p>
+                          {extras.map(([k, v]) => (
+                            <span key={k} className="mr-2 text-[9px] text-[#6b6860]">{k.replace(/_/g,' ')}: {v}</span>
+                          ))}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-[#c8920a]">{(v / 1000).toFixed(2)} t</p>
+                          <p className="text-[10px] text-[#6b6860]">{sh.toFixed(1)}%</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 h-1.5 rounded-full bg-[#f5e8c0]">
+                        <div className="h-1.5 rounded-full bg-[#c8920a] transition-all duration-500" style={{ width: `${Math.max(rel, 4)}%` }} />
+                      </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                      <span>{Number(row.area_ha || 0).toFixed(1)} ha</span>
-                      <span>{percent.toFixed(1)}%</span>
-                    </div>
-                    <div className="mt-3 h-2 rounded-full bg-amber-100">
-                      <div className={`h-2 rounded-full bg-amber-500 ${getWidthClass(Math.max(percent, 5))}`} />
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })}
           </div>
         </div>
 
         {/* AFTER */}
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <div className="flex flex-col gap-2 border-b border-emerald-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="overflow-hidden rounded-xl border border-[#96dbb4] bg-[#edfaf3]">
+          <div className="flex items-center justify-between border-b border-[#96dbb4]/60 px-4 py-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Added Interventions</div>
-              <div className="mt-1 text-sm text-emerald-700/80">Area added: {addedArea.toFixed(1)} ha</div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-[#106030]">Added Interventions</p>
+              <p className="text-[10px] text-[#1a8a50]">{aArea.toFixed(1)} ha planted</p>
             </div>
-            <div className="text-3xl font-bold text-emerald-700">{(addedTotalKg / 1000).toFixed(1)} t</div>
+            <p className="text-xl font-black text-[#1a8a50]">{(aTotal / 1000).toFixed(1)} t</p>
           </div>
-
-          <div className="mt-4 space-y-3">
-            {afterRows.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-emerald-200 bg-white/70 p-6 text-center text-sm text-slate-500">
-                No intervention sequestration data available
-              </div>
-            ) : (
-              afterRows.map((row, index) => {
-                const value   = parseFloat(row.annual_co2_sequestration_kg || '0') || 0;
-                const percent = addedTotalKg > 0 ? (value / addedTotalKg) * 100 : 0;
-                const relative = topAdded > 0 ? (value / topAdded) * 100 : 0;
-                const tone    = PALETTE[(typeColorIdx.get(row.type) ?? index) % PALETTE.length];
-                return (
-                  <div key={`${row.intervention}-${index}`} className={`rounded-xl border p-4 ${tone.card}`}>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <div className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${tone.pill}`}>
-                          {badgeText(row.type || row.intervention)}
+          <div className="space-y-2 p-3">
+            {aRows.length === 0
+              ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
+              : aRows.map((r, i) => {
+                  const v = parseFloat(r.annual_co2_sequestration_kg || '0') || 0;
+                  const sh = aTotal > 0 ? (v / aTotal) * 100 : 0;
+                  const rel = (v / aMax) * 100;
+                  const c = AFTER_COLORS[(typeIdx.get(r.type) ?? i) % AFTER_COLORS.length];
+                  const extras = Object.entries(r).filter(([k]) => !KNOWN_AFTER.has(k) && r[k]?.trim());
+                  return (
+                    <div key={i} className="rounded-lg border bg-white px-3 py-3" style={{ borderColor: c.border }}>
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${c.pill}`}>
+                          {initials(r.type || r.intervention)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-black text-[#1a1a1a] truncate">{r.intervention}</p>
+                          <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-[#6b6860]">
+                            <span>{Number(r.area_added_ha || 0).toFixed(1)} ha</span>
+                            <span>{Number(r.sequestration_factor || 0).toFixed(0)} kg/ha/yr</span>
+                            {extras.map(([k, v]) => (
+                              <span key={k}>{k.replace(/_/g,' ')}: {v}</span>
+                            ))}
+                          </div>
                         </div>
-                        <div className="mt-2 truncate text-sm font-semibold text-slate-900">{row.intervention}</div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-black" style={{ color: c.text }}>{(v / 1000).toFixed(2)} t</p>
+                          <p className="text-[10px] text-[#6b6860]">{sh.toFixed(1)}%</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <div className={`text-sm font-bold ${tone.text}`}>{(value / 1000).toFixed(2)} t</div>
-                        <div className="text-xs text-slate-500">{percent.toFixed(1)}% of added total</div>
+                      <div className="mt-2 h-1.5 rounded-full bg-[#eceae5]">
+                        <div className="h-1.5 rounded-full transition-all duration-500" style={{ width: `${Math.max(rel, 4)}%`, background: c.bar }} />
                       </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
-                      <div>{Number(row.area_added_ha || 0).toFixed(1)} ha added</div>
-                      <div className="text-right">{Number(row.sequestration_factor || 0).toFixed(0)} kg/ha/yr</div>
-                    </div>
-                    <div className={`mt-3 h-2 rounded-full ${tone.track}`}>
-                      <div className={`h-2 rounded-full ${tone.fill} ${getWidthClass(Math.max(relative, 5))}`} />
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })}
           </div>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 

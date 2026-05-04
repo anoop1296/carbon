@@ -2,41 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
-  background-color: #ffffff;
+html, body {
+  background-color: #f8f7f4;
+  color: #1a1a1a;
 }
 
-body {
-  min-height: 100vh;
-}
+body { min-height: 100vh; }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track { background: #ffffff; }
-::-webkit-scrollbar-thumb { background: #feffff; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #eeb539; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #f1f0ed; }
+::-webkit-scrollbar-thumb { background: #c8c5be; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #a8a49c; }
 
-
-/* Use the loaded fonts */
 :root {
-  --font-serif: 'Libre Baskerville', 'Times New Roman', Times, Georgia, serif;
-  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --green: #2d6a4f;
+  --green-light: #52b788;
+  --green-pale: #d8f3dc;
+  --sand: #f8f7f4;
+  --ink: #1a1a1a;
+  --muted: #6b6860;
+  --border: #e4e2dd;
 }
 
-body {
-  font-family: var(--font-serif);
-}
-
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-display);
-  font-weight: 700;
-}
-
-/* Optional: better dark mode transition */
-html {
-  scroll-behavior: smooth;
-}
+body { font-family: var(--font-sans); }
+html { scroll-behavior: smooth; }
+::selection { background: #d8f3dc; color: #1a1a1a; }

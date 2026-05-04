@@ -10,271 +10,200 @@ export interface EmissionRow {
   annual_co2_kg: string;
 }
 
-type SortMode = 'value' | 'sector' | 'alpha';
+type Sort = 'value' | 'sector' | 'alpha';
 
-const WIDTH_CLASSES = [
-  'w-0', 'w-[5%]', 'w-[10%]', 'w-[15%]', 'w-[20%]', 'w-[25%]',
-  'w-[30%]', 'w-[35%]', 'w-[40%]', 'w-[45%]', 'w-1/2',
-  'w-[55%]', 'w-[60%]', 'w-[65%]', 'w-[70%]', 'w-[75%]',
-  'w-[80%]', 'w-[85%]', 'w-[90%]', 'w-[95%]', 'w-full',
-] as const;
-
-const PALETTE = [
-  { pill: 'bg-orange-100 text-orange-700', text: 'text-orange-600', bar: 'bg-orange-500', track: 'bg-orange-100', subtle: 'bg-orange-50 border-orange-200', ring: 'ring-orange-200' },
-  { pill: 'bg-amber-100 text-amber-700',   text: 'text-amber-600',  bar: 'bg-amber-500',  track: 'bg-amber-100',  subtle: 'bg-amber-50 border-amber-200',   ring: 'ring-amber-200'  },
-  { pill: 'bg-blue-100 text-blue-700',     text: 'text-blue-600',   bar: 'bg-blue-500',   track: 'bg-blue-100',   subtle: 'bg-blue-50 border-blue-200',     ring: 'ring-blue-200'   },
-  { pill: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-600', bar: 'bg-emerald-500', track: 'bg-emerald-100', subtle: 'bg-emerald-50 border-emerald-200', ring: 'ring-emerald-200' },
-  { pill: 'bg-violet-100 text-violet-700', text: 'text-violet-600', bar: 'bg-violet-500', track: 'bg-violet-100', subtle: 'bg-violet-50 border-violet-200', ring: 'ring-violet-200' },
-  { pill: 'bg-pink-100 text-pink-700',     text: 'text-pink-600',   bar: 'bg-pink-500',   track: 'bg-pink-100',   subtle: 'bg-pink-50 border-pink-200',     ring: 'ring-pink-200'   },
-  { pill: 'bg-cyan-100 text-cyan-700',     text: 'text-cyan-600',   bar: 'bg-cyan-500',   track: 'bg-cyan-100',   subtle: 'bg-cyan-50 border-cyan-200',     ring: 'ring-cyan-200'   },
-  { pill: 'bg-teal-100 text-teal-700',     text: 'text-teal-600',   bar: 'bg-teal-500',   track: 'bg-teal-100',   subtle: 'bg-teal-50 border-teal-200',     ring: 'ring-teal-200'   },
-  { pill: 'bg-red-100 text-red-700',       text: 'text-red-600',    bar: 'bg-red-500',    track: 'bg-red-100',    subtle: 'bg-red-50 border-red-200',       ring: 'ring-red-200'    },
-  { pill: 'bg-indigo-100 text-indigo-700', text: 'text-indigo-600', bar: 'bg-indigo-500', track: 'bg-indigo-100', subtle: 'bg-indigo-50 border-indigo-200', ring: 'ring-indigo-200' },
+// Fixed colour palette — one per sector slot, cycles if more sectors added
+const SECTOR_COLORS = [
+  { bg: '#fff0e8', border: '#f4b896', bar: '#e2711d', text: '#b05010', pill: '#fde8d8 text-[#b05010]' },
+  { bg: '#fffbec', border: '#f5d78a', bar: '#c8920a', text: '#8a6208', pill: '#fef8e0 text-[#8a6208]' },
+  { bg: '#eef3ff', border: '#b8ccf4', bar: '#3460c8', text: '#2040a0', pill: '#dce8ff text-[#2040a0]' },
+  { bg: '#edfaf3', border: '#96dbb4', bar: '#1a8a50', text: '#106030', pill: '#d4f4e4 text-[#106030]' },
+  { bg: '#f8eeff', border: '#d0a8f4', bar: '#7830c8', text: '#5020a0', pill: '#eedcff text-[#5020a0]' },
+  { bg: '#ffecf0', border: '#f4a0b0', bar: '#d01840', text: '#a01030', pill: '#ffdce4 text-[#a01030]' },
+  { bg: '#ecfcfc', border: '#8cd8d8', bar: '#0a8a90', text: '#066066', pill: '#d0f8f8 text-[#066066]' },
+  { bg: '#fef4ec', border: '#f0c090', bar: '#d06010', text: '#904008', pill: '#fde8d0 text-[#904008]' },
 ];
 
-function getWidthClass(percent: number): string {
-  return WIDTH_CLASSES[Math.round(Math.max(0, Math.min(100, percent)) / 5)];
-}
-
-function shortLabel(text: string, limit = 28): string {
-  return text.length > limit ? `${text.slice(0, limit)}...` : text;
-}
+function pct(v: number, mx: number) { return mx > 0 ? Math.min(100, (v / mx) * 100) : 0; }
+function fmtT(kg: number) { return (kg / 1000).toFixed(2); }
+function short(s: string, n = 32) { return s.length > n ? s.slice(0, n) + '…' : s; }
 
 export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | undefined }) {
-  const [sortMode, setSortMode] = useState<SortMode>('value');
-  const [topN, setTopN] = useState(6);
-  const [activeSector, setActiveSector] = useState<string | null>(null);
-  const [selectedActivity, setSelectedActivity] = useState<string | null>(null);
-  const [isNarrow, setIsNarrow] = useState(false);
+  const [sort, setSort]       = useState<Sort>('value');
+  const [topN, setTopN]       = useState(6);
+  const [sector, setSector]   = useState<string | null>(null);
+  const [picked, setPicked]   = useState<string | null>(null);
 
-  useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth < 640);
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Assign a stable color index to each unique sector
-  const sectorColorIdx = useMemo(() => {
-    const map = new Map<string, number>();
-    (rows || []).forEach((row) => {
-      if (!map.has(row.sector)) map.set(row.sector, map.size);
-    });
-    return map;
+  const sectorIdx = useMemo(() => {
+    const m = new Map<string, number>();
+    (rows || []).forEach(r => { if (!m.has(r.sector)) m.set(r.sector, m.size); });
+    return m;
   }, [rows]);
 
-  const aggregated = useMemo(() => {
-    const activityMap = new Map<string, { value: number; sector: string }>();
-    (rows || []).forEach((row) => {
-      const value = parseFloat(row.annual_co2_kg || '0') || 0;
-      if (value <= 0) return;
-      const prev = activityMap.get(row.activity);
-      activityMap.set(row.activity, { value: (prev?.value || 0) + value, sector: row.sector });
+  const agg = useMemo(() => {
+    const m = new Map<string, { v: number; sector: string }>();
+    (rows || []).forEach(r => {
+      const v = parseFloat(r.annual_co2_kg || '0') || 0;
+      if (v <= 0) return;
+      const ex = m.get(r.activity);
+      m.set(r.activity, { v: (ex?.v || 0) + v, sector: r.sector });
     });
-    return Array.from(activityMap.entries()).map(([label, data]) => ({
-      key: label, label, sector: data.sector, value: data.value,
-    }));
+    return Array.from(m.entries()).map(([label, d]) => ({ label, sector: d.sector, value: d.v }));
   }, [rows]);
 
-  if (aggregated.length === 0) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
-        No emissions data available
-      </div>
-    );
-  }
+  if (!agg.length) return (
+    <div className="rounded-2xl border border-[#e4e2dd] bg-white p-12 text-center text-sm text-[#6b6860]">No emissions data</div>
+  );
 
   const sectorTotals = Array.from(
-    aggregated.reduce((map, item) => {
-      map.set(item.sector, (map.get(item.sector) || 0) + item.value);
-      return map;
-    }, new Map<string, number>())
-  )
-    .map(([sector, value]) => ({ sector, value }))
-    .sort((a, b) => b.value - a.value);
+    agg.reduce((m, x) => { m.set(x.sector, (m.get(x.sector) || 0) + x.value); return m; }, new Map<string, number>())
+  ).map(([s, v]) => ({ s, v })).sort((a, b) => b.v - a.v);
 
-  const total = sectorTotals.reduce((sum, item) => sum + item.value, 0);
+  const total = sectorTotals.reduce((s, x) => s + x.v, 0);
 
-  const sorted = [...aggregated].sort((a, b) => {
-    if (sortMode === 'value')  return b.value - a.value;
-    if (sortMode === 'sector') return a.sector.localeCompare(b.sector) || b.value - a.value;
-    return a.label.localeCompare(b.label);
-  });
-
-  const filtered     = activeSector ? sorted.filter((item) => item.sector === activeSector) : sorted;
-  const visibleItems = filtered.slice(0, topN);
-  const maxValue     = Math.max(...visibleItems.map((item) => item.value), 1);
-  const selected     = visibleItems.find((item) => item.key === selectedActivity) || visibleItems[0] || filtered[0];
+  const sorted = [...agg].sort((a, b) =>
+    sort === 'value' ? b.value - a.value : sort === 'sector' ? a.sector.localeCompare(b.sector) || b.value - a.value : a.label.localeCompare(b.label)
+  );
+  const filtered = sector ? sorted.filter(x => x.sector === sector) : sorted;
+  const visible  = filtered.slice(0, topN);
+  const maxVal   = Math.max(...visible.map(x => x.value), 1);
+  const sel      = visible.find(x => x.label === picked) || visible[0];
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-      <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-start md:justify-between">
+    <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
+      {/* header band */}
+      <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">Annual Emissions</h3>
-          <p className="mt-1 text-sm text-slate-500">CO2e by activity from API data</p>
+          <h3 className="text-lg font-black text-[#1a1a1a]">Annual CO₂ Emissions</h3>
+          <p className="mt-0.5 text-xs text-[#6b6860]">By activity · dynamically built from CSV columns</p>
         </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-red-600">Total / Year</div>
-          <div className="mt-1 text-2xl font-bold text-red-700">{(total / 1000).toFixed(1)} t</div>
-          <div className="text-xs text-red-500">CO2e</div>
+        <div className="rounded-xl border border-[#f4b896] bg-[#fff0e8] px-5 py-2.5 text-center">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-[#b05010]">Total / Year</p>
+          <p className="mt-0.5 text-2xl font-black text-[#e2711d]">{(total / 1000).toFixed(1)}</p>
+          <p className="text-[10px] text-[#b05010]">t CO₂e</p>
         </div>
       </div>
 
-      <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
-          {(['value', 'sector', 'alpha'] as SortMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setSortMode(mode)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                sortMode === mode
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {mode === 'value' ? 'By Value' : mode === 'sector' ? 'By Sector' : 'A-Z'}
+      <div className="p-5 md:p-6">
+        {/* sort + topN controls */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {(['value','sector','alpha'] as Sort[]).map(m => (
+            <button key={m} type="button" onClick={() => setSort(m)}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${sort === m ? 'border-[#2d6a4f] bg-[#2d6a4f] text-white' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#2d6a4f] hover:text-[#2d6a4f]'}`}>
+              {m === 'value' ? 'By Value' : m === 'sector' ? 'By Sector' : 'A–Z'}
             </button>
           ))}
+          <span className="ml-auto flex gap-1.5">
+            {[6, 10, filtered.length].map((n, i) => (
+              <button key={i} type="button" onClick={() => setTopN(n)}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${topN === n ? 'border-[#2d6a4f] bg-[#edf7f0] text-[#2d6a4f]' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#2d6a4f]'}`}>
+                {i === 2 ? 'All' : `Top ${n}`}
+              </button>
+            ))}
+          </span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {[6, 10, filtered.length].map((count, index) => {
-            const label = index === 2 ? 'All' : `Top ${count}`;
+
+        {/* sector filter pills */}
+        <div className="mb-5 flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => setSector(null)}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${!sector ? 'border-[#1a1a1a] bg-[#1a1a1a] text-white' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#1a1a1a]'}`}>
+            All
+          </button>
+          {sectorTotals.map(({ s, v }) => {
+            const c = SECTOR_COLORS[(sectorIdx.get(s) ?? 0) % SECTOR_COLORS.length];
             return (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setTopN(count)}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                  topN === count
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {label}
+              <button key={s} type="button" onClick={() => setSector(sector === s ? null : s)}
+                style={sector === s ? { background: c.bg, borderColor: c.border } : undefined}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${sector === s ? '' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#1a1a1a]'}`}>
+                <span style={sector === s ? { color: c.text } : undefined}>{s} · {((v / total) * 100).toFixed(0)}%</span>
               </button>
             );
           })}
         </div>
-      </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setActiveSector(null)}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-            !activeSector ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          All sectors
-        </button>
-        {sectorTotals.map((sector) => {
-          const tone = PALETTE[(sectorColorIdx.get(sector.sector) ?? 0) % PALETTE.length];
-          const isActive = activeSector === sector.sector;
-          return (
-            <button
-              key={sector.sector}
-              type="button"
-              onClick={() => setActiveSector(isActive ? null : sector.sector)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                isActive ? tone.subtle : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {sector.sector} {((sector.value / total) * 100).toFixed(0)}%
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-5 grid gap-4 lg:grid-cols-[1.35fr_0.9fr]">
-        <div className="space-y-3">
-          {visibleItems.map((item) => {
-            const tone = PALETTE[(sectorColorIdx.get(item.sector) ?? 0) % PALETTE.length];
-            const widthPercent = maxValue > 0 ? (item.value / maxValue) * 100 : 0;
-            const sharePercent = total > 0 ? (item.value / total) * 100 : 0;
-            const isActive = selected.key === item.key;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setSelectedActivity(item.key)}
-                className={`w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${isActive ? `ring-2 ring-offset-1 ${tone.ring}` : ''}`}
-              >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className={`inline-flex min-w-16 justify-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${tone.pill}`}>
+        {/* two-col layout */}
+        <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
+          {/* bar list */}
+          <div className="space-y-2">
+            {visible.map(item => {
+              const c = SECTOR_COLORS[(sectorIdx.get(item.sector) ?? 0) % SECTOR_COLORS.length];
+              const isAct = sel?.label === item.label;
+              return (
+                <button key={item.label} type="button" onClick={() => setPicked(item.label)}
+                  style={isAct ? { borderColor: c.border, background: c.bg } : undefined}
+                  className={`w-full rounded-xl border p-4 text-left transition-all hover:border-[#c8c5be] ${isAct ? 'shadow-sm' : 'border-[#e4e2dd] bg-white'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className="shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider"
+                      style={{ background: c.bg, borderColor: c.border, color: c.text }}>
                       {item.sector}
                     </span>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900">
-                        {shortLabel(item.label, isNarrow ? 24 : 36)}
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1a1a1a]">{short(item.label, 36)}</span>
+                    <span className="shrink-0 text-sm font-black" style={{ color: c.text }}>{((item.value / total) * 100).toFixed(1)}%</span>
+                    <span className="shrink-0 text-xs text-[#6b6860]">{fmtT(item.value)} t</span>
+                  </div>
+                  {/* bar track */}
+                  <div className="mt-3 h-2 rounded-full bg-[#f4f2ee]">
+                    <div className="h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.max(pct(item.value, maxVal), 4)}%`, background: c.bar }} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* detail panel */}
+          {sel && (() => {
+            const c = SECTOR_COLORS[(sectorIdx.get(sel.sector) ?? 0) % SECTOR_COLORS.length];
+            return (
+              <div className="space-y-3">
+                <div className="rounded-xl border p-5" style={{ background: c.bg, borderColor: c.border }}>
+                  <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: c.text }}>Selected Activity</p>
+                  <p className="mt-2 text-base font-black leading-tight text-[#1a1a1a]">{sel.label}</p>
+                  <span className="mt-2 inline-block rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider"
+                    style={{ background: '#fff', borderColor: c.border, color: c.text }}>{sel.sector}</span>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {[
+                      { l: 'CO₂ / yr', v: `${fmtT(sel.value)} t` },
+                      { l: 'Share',    v: `${((sel.value / total) * 100).toFixed(1)}%` },
+                      { l: 'Rank',     v: `#${visible.findIndex(x => x.label === sel.label) + 1}` },
+                      { l: 'kg',       v: Math.round(sel.value).toLocaleString() },
+                    ].map(card => (
+                      <div key={card.l} className="rounded-lg border border-white/60 bg-white px-3 py-2">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">{card.l}</p>
+                        <p className="mt-0.5 text-base font-black" style={{ color: c.text }}>{card.v}</p>
                       </div>
-                      <div className="text-xs text-slate-500">{(item.value / 1000).toFixed(2)} t CO2e</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-lg font-bold ${tone.text}`}>{sharePercent.toFixed(1)}%</div>
-                    <div className="text-xs text-slate-500">share of total</div>
+                    ))}
                   </div>
                 </div>
-                <div className={`mt-3 h-2 rounded-full ${tone.track}`}>
-                  <div className={`h-2 rounded-full transition-all duration-500 ${tone.bar} ${getWidthClass(Math.max(widthPercent, 5))}`} />
+
+                {/* sector summary */}
+                <div className="rounded-xl border border-[#e4e2dd] bg-[#f8f7f4] p-4">
+                  <p className="mb-2 text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">Sector Share</p>
+                  <div className="space-y-2">
+                    {sectorTotals.map(({ s, v }) => {
+                      const sc = SECTOR_COLORS[(sectorIdx.get(s) ?? 0) % SECTOR_COLORS.length];
+                      const sh = total > 0 ? (v / total) * 100 : 0;
+                      return (
+                        <button key={s} type="button" onClick={() => setSector(sector === s ? null : s)}
+                          className="w-full rounded-lg border border-[#e4e2dd] bg-white p-2.5 text-left transition hover:bg-[#f4f2ee]">
+                          <div className="flex justify-between text-xs font-semibold">
+                            <span className="text-[#1a1a1a]">{s}</span>
+                            <span style={{ color: sc.text }}>{sh.toFixed(1)}%</span>
+                          </div>
+                          <div className="mt-1.5 h-1.5 rounded-full bg-[#eceae5]">
+                            <div className="h-1.5 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.max(sh, 3)}%`, background: sc.bar }} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </button>
+              </div>
             );
-          })}
-        </div>
-
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Selected Activity</div>
-            <div className="mt-3 text-xl font-bold text-slate-900">{selected.label}</div>
-            <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${PALETTE[(sectorColorIdx.get(selected.sector) ?? 0) % PALETTE.length].pill}`}>
-              {selected.sector}
-            </div>
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              {[
-                { label: 'Emission', value: `${(selected.value / 1000).toFixed(3)} t` },
-                { label: 'Share',    value: `${((selected.value / total) * 100).toFixed(1)}%` },
-                { label: 'Visible Rank', value: `#${visibleItems.findIndex((item) => item.key === selected.key) + 1}` },
-              ].map((card) => (
-                <div key={card.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{card.label}</div>
-                  <div className="mt-1 text-lg font-bold text-slate-900">{card.value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sector Share</div>
-            <div className="mt-4 space-y-3">
-              {sectorTotals.map((sector) => {
-                const tone = PALETTE[(sectorColorIdx.get(sector.sector) ?? 0) % PALETTE.length];
-                const share = total > 0 ? (sector.value / total) * 100 : 0;
-                return (
-                  <button
-                    key={sector.sector}
-                    type="button"
-                    onClick={() => setActiveSector((prev) => (prev === sector.sector ? null : sector.sector))}
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                      activeSector === sector.sector ? tone.subtle : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-slate-900">{sector.sector}</div>
-                      <div className={`text-sm font-bold ${tone.text}`}>{share.toFixed(1)}%</div>
-                    </div>
-                    <div className={`mt-2 h-2 rounded-full ${tone.track}`}>
-                      <div className={`h-2 rounded-full transition-all duration-500 ${tone.bar} ${getWidthClass(Math.max(share, 5))}`} />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          })()}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
