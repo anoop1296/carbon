@@ -116,20 +116,21 @@ function escapeCsvValue(value: string): string {
 }
 
 export function upsertRowsByVlcode(existingRows: CsvRow[], newRows: CsvRow[], headers: string[]): CsvRow[] {
-  const vlcodeHeader = 'vlcode';
-  if (!headers.includes(vlcodeHeader)) {
+  // Use the first column as the primary key — no hardcoded field name
+  const pkHeader = headers[0];
+  if (!pkHeader) {
     return [...existingRows, ...newRows];
   }
 
   const result = existingRows.map((row) => ({ ...row }));
   for (const newRow of newRows) {
-    const newVlcode = (newRow[vlcodeHeader] ?? '').trim();
-    if (!newVlcode) {
+    const newPk = (newRow[pkHeader] ?? '').trim();
+    if (!newPk) {
       result.push(normalizeRow(headers, newRow));
       continue;
     }
 
-    const index = result.findIndex((row) => (row[vlcodeHeader] ?? '').trim() === newVlcode);
+    const index = result.findIndex((row) => (row[pkHeader] ?? '').trim() === newPk);
     if (index >= 0) {
       result[index] = normalizeRow(headers, { ...result[index], ...newRow });
     } else {

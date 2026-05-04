@@ -1,45 +1,45 @@
 // app/api/monthly/route.ts
-// Wide cols: vlcode, village_name,
-//   Electricity_Consumption_kWh, Firewood_Consumption_kg, LPG_Consumption_kg,
-//   Livestock_Count, Petrol_Consumption_Litres, Solid_Waste_kg,
-//   Vehicles_(2-wheelers)_Count
-//
-// Component MonthlyRow: { vlcode, village_name, activity, unit, monthly_quantity }
+// Fully dynamic: first two columns = pk + name. All others = activity columns.
+// Activity label = underscores → spaces, trailing unit suffix stripped.
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
-import { parseCSV } from '@/lib/csvParser';
+import { readCSV } from '@/lib/csvParser';
 
-// Maps wide column → { activity label, unit }
-const MONTHLY_META: Record<string, { activity: string; unit: string }> = {
-  'Electricity_Consumption_kWh':    { activity: 'Electricity Consumption', unit: 'kWh'    },
-  'Firewood_Consumption_kg':        { activity: 'Firewood Consumption',    unit: 'kg'     },
-  'LPG_Consumption_kg':             { activity: 'LPG Consumption',         unit: 'kg'     },
-  'Livestock_Count':                { activity: 'Livestock',               unit: 'Count'  },
-  'Petrol_Consumption_Litres':      { activity: 'Petrol Consumption',      unit: 'Litres' },
-  'Solid_Waste_kg':                 { activity: 'Solid Waste',             unit: 'kg'     },
-  'Vehicles_(2-wheelers)_Count':    { activity: 'Vehicles (2-wheelers)',   unit: 'Count'  },
-};
+function deriveActivityAndUnit(col: string): { activity: string; unit: string } {
+  const parts = col.split('_');
+  const last = parts[parts.length - 1];
+  const unitLike = /^(kWh|kg|Litres|Count|L|t|kwh|litre|litres|count|tonnes|units|pcs|nos)$/i.test(last);
+  const actParts = unitLike ? parts.slice(0, -1) : parts;
+  return {
+    activity: actParts.join(' ').trim(),
+    unit:     unitLike ? last : '',
+  };
+}
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const vlcode = searchParams.get('vlcode') || '';
+    const pkFilter = searchParams.get('vlcode') || '';
 
-    const rows = await parseCSV('Monthly_Activity_Wide.csv');
-    const filtered = vlcode ? rows.filter(r => r.vlcode === vlcode) : rows;
+    const { headers, rows } = await readCSV('Monthly_Activity_Wide.csv');
+    const pkCol   = headers[0] ?? 'vlcode';
+    const nameCol = headers[1] ?? 'village_name';
+    const identity = new Set([pkCol, nameCol]);
 
+    const filtered = pkFilter ? rows.filter(r => r[pkCol] === pkFilter) : rows;
     const data: Record<string, string>[] = [];
+
     for (const row of filtered) {
-      for (const [col, meta] of Object.entries(MONTHLY_META)) {
-        if (col in row) {
-          data.push({
-            vlcode:          row.vlcode,
-            village_name:    row.village_name,
-            activity:        meta.activity,
-            unit:            meta.unit,
-            monthly_quantity: row[col] || '0',
-          });
-        }
+      for (const [col, val] of Object.entries(row)) {
+        if (identity.has(col)) continue;
+        const { activity, unit } = deriveActivityAndUnit(col);
+        data.push({
+          [pkCol]:          row[pkCol],
+          [nameCol]:        row[nameCol],
+          activity,
+          unit,
+          monthly_quantity: val || '0',
+        });
       }
     }
 

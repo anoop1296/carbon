@@ -1,8 +1,8 @@
-﻿// frontend/app/dashboard/page.tsx
 'use client';
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import VillageHeader, { VillageRow } from '@/components/VillageHeader';
+import { VillageRow } from '@/components/VillageHeader';
 import EmissionsChart, { EmissionRow } from '@/components/EmissionsChart';
 import CarbonBudgetCard, { BudgetRow } from '@/components/CarbonBudgetCard';
 import ScenarioProjection, { ScenarioRow } from '@/components/ScenarioProjection';
@@ -16,6 +16,7 @@ import {
 } from '@/components/SequestrationCard';
 import InterventionReductions, { ReductionRow } from '@/components/InterventionReductions';
 
+// ── types ─────────────────────────────────────────────────────────────────
 interface DashData {
   emissions: EmissionRow[];
   budgetBefore: BudgetRow[];
@@ -28,142 +29,123 @@ interface DashData {
   factors: FactorRow[];
 }
 
-type CsvRow = Record<string, unknown>;
-
 type Tab = 'overview' | 'emissions' | 'budget' | 'scenario' | 'sequestration' | 'interventions' | 'activity';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'emissions', label: 'Emissions' },
-  { id: 'sequestration', label: 'Sequestration' },
-  { id: 'interventions', label: 'Interventions' },
-  { id: 'budget', label: 'Carbon Budget' },
-  { id: 'scenario', label: 'Scenarios' },
+const TABS: { id: Tab; label: string; icon: string; desc: string }[] = [
+  { id: 'overview',      label: 'Overview',      icon: '🏘️', desc: 'Village profile & attributes'   },
+  { id: 'emissions',     label: 'Emissions',     icon: '🌫️', desc: 'Annual CO₂ by sector'           },
+  { id: 'sequestration', label: 'Sequestration', icon: '🌳', desc: 'Carbon sink sources'             },
+  { id: 'interventions', label: 'Interventions', icon: '⚡', desc: 'CO₂ reduction actions'           },
+  { id: 'budget',        label: 'Carbon Budget', icon: '📊', desc: 'Before vs after comparison'      },
+  { id: 'scenario',      label: 'Scenarios',     icon: '📈', desc: 'BAU · LOS · Accelerated'         },
+  { id: 'activity',      label: 'Activity',      icon: '📅', desc: 'Monthly consumption data'        },
 ];
 
-function csvEscape(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  const raw = String(value);
-  if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
-  return raw;
+const STAT_PALETTE = [
+  { border: 'border-l-4 border-l-emerald-500', icon: 'bg-emerald-100 text-emerald-700', value: 'text-emerald-700' },
+  { border: 'border-l-4 border-l-blue-500',    icon: 'bg-blue-100 text-blue-700',       value: 'text-blue-700'    },
+  { border: 'border-l-4 border-l-violet-500',  icon: 'bg-violet-100 text-violet-700',   value: 'text-violet-700'  },
+  { border: 'border-l-4 border-l-amber-500',   icon: 'bg-amber-100 text-amber-700',     value: 'text-amber-700'   },
+  { border: 'border-l-4 border-l-red-500',     icon: 'bg-red-100 text-red-700',         value: 'text-red-700'     },
+  { border: 'border-l-4 border-l-cyan-500',    icon: 'bg-cyan-100 text-cyan-700',       value: 'text-cyan-700'    },
+  { border: 'border-l-4 border-l-pink-500',    icon: 'bg-pink-100 text-pink-700',       value: 'text-pink-700'    },
+  { border: 'border-l-4 border-l-teal-500',    icon: 'bg-teal-100 text-teal-700',       value: 'text-teal-700'    },
+  { border: 'border-l-4 border-l-orange-500',  icon: 'bg-orange-100 text-orange-700',   value: 'text-orange-700'  },
+  { border: 'border-l-4 border-l-indigo-500',  icon: 'bg-indigo-100 text-indigo-700',   value: 'text-indigo-700'  },
+];
+
+// ── helpers ───────────────────────────────────────────────────────────────
+function toLabel(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
 }
 
-function rowsToCsv(rows: CsvRow[]): string {
-  if (!rows.length) return 'No data';
-  const headers = Array.from(
-    rows.reduce((set, row) => {
-      Object.keys(row).forEach((k) => set.add(k));
-      return set;
-    }, new Set<string>())
-  );
-
-  const lines = rows.map((row) => headers.map((h) => csvEscape(row[h])).join(','));
-  return [headers.join(','), ...lines].join('\n');
+function toSuffix(key: string): string {
+  if (/_ha$/i.test(key)) return 'ha';
+  if (/_kg$/i.test(key)) return 'kg';
+  if (/_kwh$/i.test(key)) return 'kWh';
+  return '';
 }
 
-function buildCsvSection(title: string, rows: CsvRow[]): string {
-  return [`${title}`, rowsToCsv(rows)].join('\n');
+function formatNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
 }
 
-// Hyper-realistic particle system for backgrounds
-function AmbientParticles({ color = 'rgba(117,166,231,0.1)' }: { color?: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+function initials(name: string): string {
+  return name.split(/\s+/).map((w) => w[0] || '').join('').toUpperCase().slice(0, 2);
+}
 
-  const withAlpha = useCallback((input: string, alpha: number) => {
-    const a = Math.max(0, Math.min(1, alpha));
-    const rgbaMatch = input.match(
-      /^rgba\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]*\.?[0-9]+)\s*\)$/i
-    );
-    if (rgbaMatch) {
-      return `rgba(${rgbaMatch[1]},${rgbaMatch[2]},${rgbaMatch[3]},${a})`;
-    }
+// col[0] = pk, col[1] = display name — no hardcoded field names
+function villageName(v: VillageRow): string {
+  return Object.values(v)[1] || Object.values(v)[0] || '—';
+}
+function villagePk(v: VillageRow): string {
+  return Object.values(v)[0] || '';
+}
+// text columns after pk+name (non-numeric, not pk, not name)
+function villageTextMeta(v: VillageRow): string {
+  return Object.entries(v)
+    .slice(2)
+    .filter(([, val]) => val && isNaN(parseFloat(val)))
+    .map(([, val]) => val)
+    .join(', ');
+}
 
-    const rgbMatch = input.match(
-      /^rgb\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*\)$/i
-    );
-    if (rgbMatch) {
-      return `rgba(${rgbMatch[1]},${rgbMatch[2]},${rgbMatch[3]},${a})`;
-    }
+// ── VillageOverview ────────────────────────────────────────────────────────
+// col[0]=pk col[1]=display name — skip both, show all other numeric cols as stat cards
+function VillageOverview({ v }: { v: VillageRow }) {
+  const name = villageName(v);
+  const meta = villageTextMeta(v);
 
-    const hex = input.replace('#', '').trim();
-    if (/^[0-9a-f]{3}$/i.test(hex)) {
-      const r = parseInt(hex[0] + hex[0], 16);
-      const g = parseInt(hex[1] + hex[1], 16);
-      const b = parseInt(hex[2] + hex[2], 16);
-      return `rgba(${r},${g},${b},${a})`;
-    }
-    if (/^[0-9a-f]{6}$/i.test(hex) || /^[0-9a-f]{8}$/i.test(hex)) {
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      return `rgba(${r},${g},${b},${a})`;
-    }
-
-    return `rgba(117,166,231,${a})`;
-  }, []);
-  
-  useEffect(() => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
-    let time = 0;
-    
-    const resize = () => {
-      canvas.width = canvas.clientWidth;
-      canvas.height = canvas.clientHeight;
-    };
-    resize();
-    
-    window.addEventListener('resize', resize);
-    
-    const particles = Array.from({ length: 60 }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * 0.5,
-      vy: (Math.random() - 0.5) * 0.5,
-      size: 2 + Math.random() * 3,
-      life: Math.random()
+  const stats = Object.entries(v)
+    .slice(2) // skip pk + name
+    .filter(([, val]) => { const n = parseFloat(val || ''); return Number.isFinite(n); })
+    .map(([key, val], idx) => ({
+      label:  toLabel(key),
+      suffix: toSuffix(key),
+      value:  parseFloat(val || '0'),
+      tone:   STAT_PALETTE[idx % STAT_PALETTE.length],
     }));
-    
-    const animate = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      particles.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.002;
-        
-        if (p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height || p.life <= 0) {
-          p.x = Math.random() * canvas.width;
-          p.y = Math.random() * canvas.height;
-          p.vx = (Math.random() - 0.5) * 0.5;
-          p.vy = (Math.random() - 0.5) * 0.5;
-          p.life = 1;
-        }
-        
-        const alpha = p.life * 0.6;
-        const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-        gradient.addColorStop(0, withAlpha(color, alpha));
-        gradient.addColorStop(1, 'transparent');
-        
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      
-      time++;
-      requestAnimationFrame(animate);
-    };
-    animate();
-    
-    return () => window.removeEventListener('resize', resize);
-  }, [color, withAlpha]);
-  
-  return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0" />;
+
+  return (
+    <div className="space-y-6">
+      {/* Identity card */}
+      <div className="flex items-start gap-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-xl font-bold text-white">
+          {initials(name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-2xl font-bold text-slate-900">{name}</h2>
+          {meta && <p className="mt-1 text-sm text-slate-500">{meta}</p>}
+        </div>
+      </div>
+
+      {/* Dynamic stat grid */}
+      {stats.length > 0 ? (
+        <div>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">Village Attributes</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {stats.map((stat) => (
+              <div key={stat.label} className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${stat.tone.border}`}>
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">{stat.label}</div>
+                <div className={`mt-2 text-2xl font-bold ${stat.tone.value}`}>{formatNum(stat.value)}</div>
+                {stat.suffix && <div className="mt-0.5 text-[11px] text-slate-400">{stat.suffix}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400">
+          No numeric attributes found. Add data columns from the admin panel.
+        </div>
+      )}
+    </div>
+  );
 }
 
-// Holographic 3D Dropdown
-function HolographicVillageDropdown({
+// ── VillageDropdown ────────────────────────────────────────────────────────
+function VillageDropdown({
   villages,
   selected,
   onSelect,
@@ -179,132 +161,78 @@ function HolographicVillageDropdown({
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onDocClick = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const visibleVillages = useMemo(() => {
+  const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
-    if (!query) return villages;
-    return villages.filter((v) => v.village_name.toLowerCase().includes(query));
+    return query ? villages.filter((v) => villageName(v).toLowerCase().includes(query)) : villages;
   }, [q, villages]);
 
   return (
     <div ref={ref} className="relative w-full">
-      <div className="mb-2 text-xs font-semibold text-gray-700">
-        Village Selection
-      </div>
-
       <button
-        className={`
-          w-full rounded-md border px-3 py-2.5 text-left text-sm
-          bg-white text-gray-900 transition-colors
-          ${open ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-300'}
-          ${loading ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}
-        `}
-        onClick={() => !loading && setOpen((o) => !o)}
+        type="button"
         disabled={loading}
+        onClick={() => !loading && setOpen((o) => !o)}
+        className={`flex w-full items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition ${
+          open ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-slate-300'
+        } bg-white disabled:opacity-60`}
       >
-        <div className="flex items-center justify-between">
-          <div className="min-w-0">
-            <div className="truncate font-medium">
-              {loading ? 'Loading villages...' : selected?.village_name || 'Select village'}
-            </div>
-            {selected && (
-              <div className="mt-0.5 text-xs text-gray-500">
-                {selected.district}, {selected.state}
-              </div>
-            )}
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-slate-900">
+            {loading ? 'Loading…' : (selected ? villageName(selected) : 'Select village')}
           </div>
-          <div className="text-xs text-gray-500">
-            ▼
-          </div>
+          {selected && (
+            <div className="mt-0.5 truncate text-xs text-slate-500">{villageTextMeta(selected)}</div>
+          )}
         </div>
+        <svg className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
-      {/* Simple dropdown panel */}
-      {open && villages.length > 0 && (
-        <div
-          className="
-            absolute left-0 right-0 mt-2 max-h-80 overflow-hidden rounded-md
-            bg-white border border-gray-200 shadow-md
-            z-50
-          "
-        >
-          <div className="sticky top-0 bg-white p-2 border-b border-gray-200 z-10">
-            <div className="relative">
-              <input
-                className="
-                  w-full px-3 py-2 rounded-md border border-gray-300
-                  bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100
-                  placeholder:text-gray-400 text-gray-900 text-sm
-                  focus:outline-none
-                "
-                placeholder="Search villages..."
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                autoFocus
-              />
-            </div>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 p-2">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search villages…"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-emerald-400 focus:bg-white"
+            />
           </div>
-
-          <div className="max-h-64 overflow-y-auto">
-            {visibleVillages.map((v) => {
-              const isSelected = selected?.vlcode === v.vlcode;
-              
-              return (
-                <div
-                  key={v.vlcode}
-                  className={`
-                    px-3 py-2.5 cursor-pointer transition-colors
-                    hover:bg-gray-50
-                    ${isSelected 
-                      ? 'bg-blue-50 ring-1 ring-blue-200 font-semibold' 
-                      : ''
-                    }
-                  `}
-                  onClick={() => {
-                    onSelect(v);
-                    setOpen(false);
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`
-                        w-7 h-7 rounded-md flex items-center justify-center text-sm font-semibold
-                        ${isSelected 
-                          ? 'bg-blue-600 text-white' 
-                          : 'bg-gray-100 text-gray-700'
-                        }
-                        transition-colors
-                      `}>
-                        {isSelected ? '✓' : '•'}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-sm text-gray-900 truncate">
-                          {v.village_name}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
-                          {v.district}
-                        </div>
-                      </div>
+          <div className="max-h-60 overflow-y-auto">
+            {visible.length === 0 ? (
+              <div className="px-4 py-5 text-center text-sm text-slate-400">No villages found</div>
+            ) : (
+              visible.map((v, i) => {
+                const pk = villagePk(v);
+                const name = villageName(v);
+                const meta = villageTextMeta(v);
+                const isActive = selected ? villagePk(selected) === pk : false;
+                return (
+                  <button
+                    key={pk || i}
+                    type="button"
+                    onClick={() => { onSelect(v); setOpen(false); setQ(''); }}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-slate-50 ${isActive ? 'bg-emerald-50' : ''}`}
+                  >
+                    <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-xs font-bold ${isActive ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                      {initials(name)}
                     </div>
-                    <div className="text-[10px] font-medium text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
-                      VL-{v.vlcode}
+                    <div className="min-w-0 flex-1">
+                      <div className={`truncate font-semibold ${isActive ? 'text-emerald-700' : 'text-slate-900'}`}>{name}</div>
+                      {meta && <div className="truncate text-xs text-slate-400">{meta}</div>}
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-            
-            {visibleVillages.length === 0 && (
-              <div className="px-4 py-6 text-center">
-                <div className="text-gray-500 text-sm">No villages found</div>
-              </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -313,153 +241,55 @@ function HolographicVillageDropdown({
   );
 }
 
-// Ultra-realistic KPI Cards
-function HolographicKPICard({
-  label,
-  value,
-  sub,
-  accent,
-  icon,
-  delay = 0,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  accent: string;
-  icon: string;
-  delay?: number;
-}) {
-  const toneStyles: Record<string, { badge: string; ring: string; soft: string }> = {
-    '#ef4444': { badge: 'bg-red-100 text-red-700', ring: 'hover:border-red-200', soft: 'text-red-600' },
-    '#10b981': { badge: 'bg-emerald-100 text-emerald-700', ring: 'hover:border-emerald-200', soft: 'text-emerald-600' },
-    '#8b5cf6': { badge: 'bg-violet-100 text-violet-700', ring: 'hover:border-violet-200', soft: 'text-violet-600' },
-    '#3b82f6': { badge: 'bg-blue-100 text-blue-700', ring: 'hover:border-blue-200', soft: 'text-blue-600' },
-  };
-  const tone = toneStyles[accent] || { badge: 'bg-slate-100 text-slate-700', ring: 'hover:border-slate-200', soft: 'text-slate-600' };
-
-  return (
-    <div
-      className={`
-        rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200
-        hover:shadow-md hover:-translate-y-0.5 ${tone.ring}
-      `}
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-xs font-semibold tracking-wide text-gray-600 uppercase">{label}</div>
-          <div className="mt-2 text-3xl font-bold text-gray-900">{value}</div>
-          <div className={`mt-1 text-sm ${tone.soft}`}>{sub}</div>
-        </div>
-        <div className={`h-9 w-9 rounded-lg text-sm font-semibold flex items-center justify-center ${tone.badge}`}>
-          {icon}
-        </div>
-      </div>
-    </div>
-  );
+// ── CSV export helper ─────────────────────────────────────────────────────
+function csvEscape(v: unknown): string {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function rowsToCsv<T extends object>(rows: T[]): string {
+  if (!rows.length) return 'No data';
+  const headers = Array.from(rows.reduce((s, r) => { Object.keys(r).forEach((k) => s.add(k)); return s; }, new Set<string>()));
+  return [headers.join(','), ...rows.map((r) => headers.map((h) => csvEscape(r[h as keyof T])).join(','))].join('\n');
 }
 
-// Enhanced Sidebar with glassmorphism + 3D
-function HolographicSidebar({ 
-  sidebarOpen, 
-  setSidebarOpen,
-  isMobile,
-  villagesLoading,
-  villages,
-  selected,
-  setSelected
-}: {
-  sidebarOpen: boolean;
-  setSidebarOpen: (open: boolean) => void;
-  isMobile: boolean;
-  villagesLoading: boolean;
-  villages: VillageRow[];
-  selected: VillageRow | null;
-  setSelected: (v: VillageRow) => void;
-}) {
-  return (
-    <aside
-      className={`
-        fixed md:sticky top-0 left-0 h-screen w-72 md:w-[280px] z-50
-        bg-gray-100 border-r border-gray-200
-        transition-transform duration-300
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-      `}
-    >
-      <div className="p-5 border-b border-gray-200">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">Carbon Dashboard</h1>
-            <p className="text-xs text-gray-600 mt-1">SLCR - Varanasi</p>
-          </div>
-          {isMobile && (
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(false)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-              aria-label="Close sidebar"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Village selector */}
-      <div className="p-4">
-        <HolographicVillageDropdown
-          villages={villages}
-          selected={selected}
-          onSelect={(v) => {
-            setSelected(v);
-          }}
-          loading={villagesLoading}
-        />
-      </div>
-    </aside>
-  );
-}
-
-export default function UltraRealisticDashboard() {
-  const [villages, setVillages] = useState<VillageRow[]>([]);
-  const [selected, setSelected] = useState<VillageRow | null>(null);
-  const [dashData, setDashData] = useState<DashData | null>(null);
-  const [loading, setLoading] = useState(false);
+// ── main dashboard ─────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const [villages, setVillages]         = useState<VillageRow[]>([]);
+  const [selected, setSelected]         = useState<VillageRow | null>(null);
+  const [dashData, setDashData]         = useState<DashData | null>(null);
+  const [loading, setLoading]           = useState(false);
   const [villagesLoading, setVillagesLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [isMobile, setIsMobile] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [activeTab, setActiveTab]       = useState<Tab>('overview');
+  const [sidebarOpen, setSidebarOpen]   = useState(false);
+  const [isMobile, setIsMobile]         = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  // ... (keep existing useEffect logic unchanged)
-
+  // responsive
   useEffect(() => {
-    const onResize = () => {
-      const mobile = window.innerWidth <= 900;
-      setIsMobile(mobile);
-      if (mobile) setSidebarOpen(false);
-    };
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    fn();
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
   }, []);
 
+  // load village list
   useEffect(() => {
     fetch('/api/village')
       .then((r) => r.json())
       .then((res) => {
-        const list = res.data || [];
+        const list: VillageRow[] = res.data || [];
         setVillages(list);
         if (list.length) setSelected(list[0]);
-        setVillagesLoading(false);
       })
-      .catch(() => setVillagesLoading(false));
+      .finally(() => setVillagesLoading(false));
   }, []);
 
+  // load dash data when village changes
   useEffect(() => {
-    if (!selected?.vlcode) return;
+    const pk = selected ? villagePk(selected) : '';
+    if (!pk) return;
     setLoading(true);
-
-    const q = `?vlcode=${selected.vlcode}`;
-
+    const q = `?vlcode=${pk}`;
     Promise.all([
       fetch(`/api/emissions${q}`).then((r) => r.json()),
       fetch(`/api/carbon-budget${q}`).then((r) => r.json()),
@@ -471,219 +301,208 @@ export default function UltraRealisticDashboard() {
     ])
       .then(([em, bud, seq, red, scen, mon, fac]) => {
         setDashData({
-          emissions: em.data || [],
+          emissions:   em.data    || [],
           budgetBefore: bud.before || [],
-          budgetAfter: bud.after || [],
-          seqBefore: seq.before || [],
-          seqAfter: seq.after || [],
-          reductions: red.data || [],
-          scenario: scen.data || [],
-          monthly: mon.data || [],
-          factors: fac.data || [],
+          budgetAfter:  bud.after  || [],
+          seqBefore:   seq.before  || [],
+          seqAfter:    seq.after   || [],
+          reductions:  red.data    || [],
+          scenario:    scen.data   || [],
+          monthly:     mon.data    || [],
+          factors:     fac.data    || [],
         });
-        setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, [selected?.vlcode]);
+      .finally(() => setLoading(false));
+  }, [selected ? villagePk(selected) : '']);
 
-  const getVal = (rows: BudgetRow[], key: string) =>
-    parseFloat(rows.find((r) => r.parameter?.toLowerCase().includes(key.toLowerCase()))?.value || '0');
+  // tab change → scroll content to top
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    if (isMobile) setSidebarOpen(false);
+  };
 
-  const pctRed = dashData ? getVal(dashData.budgetAfter, 'percentage') : 0;
-  const reductionTons = dashData
-    ? dashData.reductions.reduce((sum, r) => sum + (parseFloat(r.annual_co2_reduction_kg || '0') || 0), 0) / 1000
-    : 0;
-
-  const handleExportCsv = () => {
+  // csv export
+  const handleExport = () => {
     if (!selected || !dashData) return;
-
-    const safeVillage = selected.village_name.replace(/[^a-zA-Z0-9_-]/g, '_');
     const sections = [
-      buildCsvSection('Village', [selected as unknown as CsvRow]),
-      buildCsvSection('Emissions', (dashData.emissions || []) as unknown as CsvRow[]),
-      buildCsvSection('Carbon Budget - Before', (dashData.budgetBefore || []) as unknown as CsvRow[]),
-      buildCsvSection('Carbon Budget - After', (dashData.budgetAfter || []) as unknown as CsvRow[]),
-      buildCsvSection('Sequestration - Before', (dashData.seqBefore || []) as unknown as CsvRow[]),
-      buildCsvSection('Sequestration - After', (dashData.seqAfter || []) as unknown as CsvRow[]),
-      buildCsvSection('Interventions', (dashData.reductions || []) as unknown as CsvRow[]),
-      buildCsvSection('Scenario', (dashData.scenario || []) as unknown as CsvRow[]),
-      buildCsvSection('Monthly Activity', (dashData.monthly || []) as unknown as CsvRow[]),
-      buildCsvSection('Emission Factors', (dashData.factors || []) as unknown as CsvRow[]),
-    ];
-
-    const csvContent = sections.join('\n\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      '# Village\n' + rowsToCsv([selected]),
+      '# Emissions\n' + rowsToCsv(dashData.emissions),
+      '# Carbon Budget Before\n' + rowsToCsv(dashData.budgetBefore),
+      '# Carbon Budget After\n'  + rowsToCsv(dashData.budgetAfter),
+      '# Sequestration Before\n' + rowsToCsv(dashData.seqBefore),
+      '# Sequestration After\n'  + rowsToCsv(dashData.seqAfter),
+      '# Interventions\n'        + rowsToCsv(dashData.reductions),
+      '# Scenario\n'             + rowsToCsv(dashData.scenario),
+      '# Monthly Activity\n'     + rowsToCsv(dashData.monthly),
+    ].join('\n\n');
+    const blob = new Blob([sections], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${safeVillage}_${selected.vlcode}_all_api_data.csv`;
-    document.body.appendChild(a);
+    a.download = `${villageName(selected).replace(/\s+/g, '_')}_${villagePk(selected)}.csv`;
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
+  // ── render ──────────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-screen bg-white relative overflow-hidden">
-      {/* Global ambient particles */}
-      <AmbientParticles color="rgba(117,166,231,0.03)" />
-      
-      {/* Mobile backdrop */}
+    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900">
+
+      {/* mobile backdrop */}
       {isMobile && sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-gradient-to-br from-slate-950/50 via-slate-900/30 to-emerald-900/20 backdrop-blur-xl transition-opacity duration-300"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Enhanced Sidebar */}
-      <HolographicSidebar 
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        isMobile={isMobile}
-        villagesLoading={villagesLoading}
-        villages={villages}
-        selected={selected}
-        setSelected={setSelected}
-      />
-
-      {/* Main content */}
-      <main className="flex-1 flex flex-col min-w-0 relative bg-white">
-        {/* Holographic Topbar */}
-        <header className="sticky top-0 z-40 flex items-center justify-between overflow-hidden border-b border-slate-200/60 bg-white/95 px-4 py-4 shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur-xl md:px-10 md:py-5">
-          <AmbientParticles color="rgba(255,255,255,0.1)" />
-          <div className="flex items-center gap-3 md:gap-5 min-w-0">
-            <button
-              type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              aria-label="Toggle sidebar"
-            >
-              <span className="relative block h-4 w-5">
-                <span className={`absolute left-0 h-0.5 w-5 bg-current transition-all duration-200 ${sidebarOpen ? 'top-2 rotate-45' : 'top-0'}`} />
-                <span className={`absolute left-0 top-2 h-0.5 w-5 bg-current transition-opacity duration-200 ${sidebarOpen ? 'opacity-0' : 'opacity-100'}`} />
-                <span className={`absolute left-0 h-0.5 w-5 bg-current transition-all duration-200 ${sidebarOpen ? 'top-2 -rotate-45' : 'top-4'}`} />
-              </span>
-            </button>
-
-            <div className="relative min-w-0">
-              <h2 className="text-xl font-bold text-gray-900 max-w-[220px] md:max-w-none truncate">
-                {selected?.village_name || 'Select Village'}
-              </h2>
-              <div className="mt-0.5 text-sm text-gray-600 truncate">
-                {selected ? `${selected.district}, ${selected.state}` : TABS.find((t) => t.id === activeTab)?.label}
-              </div>
+      {/* ── SIDEBAR ── */}
+      <aside
+        className={`
+          fixed md:static inset-y-0 left-0 z-50 flex w-64 flex-col
+          border-r border-slate-200 bg-white shadow-sm
+          transition-transform duration-200
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
+        {/* brand */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">C</div>
+            <div>
+              <div className="text-sm font-bold text-slate-900">Carbon DSS</div>
+              <div className="text-[11px] text-slate-400">SLCR — Varanasi</div>
             </div>
           </div>
-
-          <div className="flex items-center gap-2 md:gap-3">
-            <Link
-              href="/admin"
-              className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 md:px-4 py-2 rounded-lg border border-slate-200 transition-colors"
-            >
-              Admin Panel
-            </Link>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              disabled={!selected || !dashData || loading}
-              className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 md:px-4 py-2 rounded-lg border border-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Export CSV
+          {isMobile && (
+            <button onClick={() => setSidebarOpen(false)} className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
+              ✕
             </button>
-            <Link
-              href="/"
-              className="group relative inline-flex items-center gap-2 rounded-xl border border-emerald-200/60 bg-emerald-100/60 px-3 py-2 text-sm font-bold text-emerald-600 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:scale-105 hover:bg-emerald-200/80 hover:text-emerald-700 hover:shadow-[0_18px_45px_rgba(16,185,129,0.25)] md:rounded-2xl md:px-5 md:text-lg"
-            >
-              Home
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-teal-400/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            </Link>
-          </div>
-        </header>
+          )}
+        </div>
 
-        {/* Holographic Tab Navigation */}
-        <nav className="sticky top-[72px] z-30 relative flex gap-2 overflow-x-auto border-b border-slate-200/60 bg-white/95 px-4 py-3 shadow-[0_16px_35px_rgba(15,23,42,0.07)] backdrop-blur-xl md:top-[88px] md:gap-3 md:px-10 md:py-4">
-          <AmbientParticles color="rgba(255,255,255,0.05)" />
-          {TABS.map((tab, idx) => {
+        {/* village selector */}
+        <div className="border-b border-slate-100 p-4">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Active Village</div>
+          <VillageDropdown
+            villages={villages}
+            selected={selected}
+            onSelect={(v) => { setSelected(v); if (isMobile) setSidebarOpen(false); }}
+            loading={villagesLoading}
+          />
+          {selected && (() => {
+            const textFields = Object.entries(selected).slice(2).filter(([, v]) => v && isNaN(parseFloat(v)));
+            return textFields.length > 0 ? (
+              <div className="mt-2.5 space-y-1 rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500">
+                {textFields.map(([key, val]) => (
+                  <div key={key} className="flex items-center justify-between gap-2">
+                    <span className="flex-shrink-0 text-slate-400">{toLabel(key)}</span>
+                    <span className="truncate font-medium text-slate-700 text-right">{val}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null;
+          })()}
+        </div>
+
+        {/* nav */}
+        <nav className="flex-1 overflow-y-auto px-2 py-3">
+          <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Sections</div>
+          {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                className={`
-                  relative overflow-hidden px-7 py-3.5 rounded-3xl text-base font-bold whitespace-nowrap transition-all duration-500 ease-out
-                  backdrop-blur-xl shadow-lg
-                  ${isActive 
-                    ? 'translate-y-1 scale-105 border-2 border-emerald-300/60 bg-gradient-to-r from-emerald-500/15 via-emerald-400/10 to-teal-500/15 text-emerald-800 shadow-[0_0_30px_rgba(16,185,129,0.22)] ring-4 ring-emerald-400/30' 
-                    : 'border border-slate-200/50 bg-white/80 text-slate-700 hover:translate-y-1 hover:scale-105 hover:border-emerald-300/50 hover:bg-slate-50/90 hover:text-slate-900 hover:shadow-[0_0_24px_rgba(16,185,129,0.18)]'
-                  }
-                `}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  if (isMobile) setSidebarOpen(false);
-                }}
+                type="button"
+                onClick={() => handleTabChange(tab.id)}
+                className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all duration-150 ${
+                  isActive
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
               >
-                <div className="relative z-10">{tab.label}</div>
+                <span className="text-base leading-none">{tab.icon}</span>
+                <div className="min-w-0 flex-1">
+                  <div className={`text-sm font-semibold leading-tight ${isActive ? 'text-white' : ''}`}>{tab.label}</div>
+                  <div className={`mt-0.5 text-[10px] leading-tight ${isActive ? 'text-emerald-200' : 'text-slate-400'}`}>{tab.desc}</div>
+                </div>
                 {isActive && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 via-transparent to-teal-400/20 animate-pulse" />
+                  <svg className="h-3.5 w-3.5 flex-shrink-0 text-emerald-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
                 )}
               </button>
             );
           })}
         </nav>
 
-        {/* Content Area */}
-        <div className="flex-1 p-6 md:p-10 overflow-y-auto relative">
-          {loading || villagesLoading ? (
-            <div className="h-[70vh] flex flex-col items-center justify-center text-slate-500 gap-8 relative">
-              <div className="relative">
-                <div className="h-24 w-24 animate-spin rounded-3xl border-4 border-slate-200/50 border-t-emerald-500/80 shadow-2xl shadow-emerald-500/20 backdrop-blur-xl" />
-                <div className="absolute inset-0 h-24 w-24 animate-ping rounded-3xl border-2 border-emerald-400/30" />
-              </div>
-              <div className="text-2xl font-black bg-gradient-to-r from-slate-700 to-slate-900 bg-clip-text text-transparent drop-shadow-lg">
-                Loading village data...
+        {/* footer */}
+        <div className="flex gap-2 border-t border-slate-100 px-3 py-3">
+          <Link href="/admin" className="flex-1 rounded-lg border border-slate-200 py-2 text-center text-[11px] font-semibold text-slate-500 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700">
+            Admin
+          </Link>
+          <Link href="/" className="flex-1 rounded-lg border border-slate-200 py-2 text-center text-[11px] font-semibold text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700">
+            Home
+          </Link>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={!selected || !dashData || loading}
+            className="flex-1 rounded-lg border border-slate-200 py-2 text-center text-[11px] font-semibold text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
+          >
+            Export
+          </button>
+        </div>
+      </aside>
+
+      {/* ── MAIN ── */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+
+        {/* mobile-only topbar — just the hamburger */}
+        <header className="flex flex-shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          {loading && <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-500" />}
+        </header>
+
+        {/* content */}
+        <div ref={contentRef} className="flex-1 overflow-y-auto p-4 md:p-6">
+          {villagesLoading ? (
+            <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading villages…</div>
+          ) : !selected ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-4">
+              <div className="text-sm text-slate-400">Select a village from the sidebar to begin</div>
+              <div className="w-72">
+                <VillageDropdown villages={villages} selected={null} onSelect={setSelected} loading={villagesLoading} />
               </div>
             </div>
-          ) : !selected ? (
-            <div className="h-[70vh] flex flex-col items-center justify-center text-slate-600 gap-8">
-              <div className="text-5xl mb-8 animate-bounce">ðŸ˜ï¸</div>
-              <h3 className="text-3xl font-black text-slate-800 drop-shadow-lg text-center">
-                Select a village to explore carbon insights
-              </h3>
-              <HolographicVillageDropdown 
-                villages={villages} 
-                selected={null} 
-                onSelect={setSelected} 
-                loading={villagesLoading} 
-              />
+          ) : loading ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-500" />
             </div>
           ) : (
-            <>
-              <VillageHeader v={selected} />
-
-              {activeTab === 'overview' && (
-                <div className="mt-6 space-y-6">
-                  
-
-                  <MonthlyActivity rows={dashData?.monthly} />
-
-                </div>
-              )}
-
-              {activeTab === 'emissions' && <EmissionsChart rows={dashData?.emissions} />}
-              {activeTab === 'budget' && <CarbonBudgetCard before={dashData?.budgetBefore} after={dashData?.budgetAfter} />}
-              {activeTab === 'scenario' && <ScenarioProjection rows={dashData?.scenario} />}
+            <div className="space-y-6">
+              {activeTab === 'overview'      && <VillageOverview v={selected} />}
+              {activeTab === 'emissions'     && <EmissionsChart rows={dashData?.emissions} />}
               {activeTab === 'sequestration' && <SequestrationCard before={dashData?.seqBefore} after={dashData?.seqAfter} />}
               {activeTab === 'interventions' && <InterventionReductions rows={dashData?.reductions} />}
-              {activeTab === 'activity' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
+              {activeTab === 'budget'        && <CarbonBudgetCard before={dashData?.budgetBefore} after={dashData?.budgetAfter} />}
+              {activeTab === 'scenario'      && <ScenarioProjection rows={dashData?.scenario} />}
+              {activeTab === 'activity'      && (
+                <div className="space-y-6">
                   <MonthlyActivity rows={dashData?.monthly} />
                   <EmissionFactors rows={dashData?.factors} />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

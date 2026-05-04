@@ -1,35 +1,33 @@
 // app/api/emissions/route.ts
-// Wide CSV cols: vlcode, village_name, Sector_Activity...
-// Component expects: { vlcode, village_name, sector, activity, annual_co2_kg }
+// Wide CSV: first two columns are the identity key (pk) and name.
+// All remaining columns are "Sector_Activity" pairs → unpivoted.
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
-import { parseCSV } from '@/lib/csvParser';
+import { readCSV } from '@/lib/csvParser';
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const vlcode = searchParams.get('vlcode') || '';
+    const pkFilter = searchParams.get('vlcode') || '';
 
-    const rows = await parseCSV('Annual_Emissions_Wide.csv');
-    const filtered = vlcode ? rows.filter(r => r.vlcode === vlcode) : rows;
+    const { headers, rows } = await readCSV('Annual_Emissions_Wide.csv');
+    const pkCol   = headers[0] ?? 'vlcode';
+    const nameCol = headers[1] ?? 'village_name';
+    const identity = new Set([pkCol, nameCol]);
 
-    // Unpivot: each non-identity column is "Sector_Activity"
-    const identity = new Set(['vlcode', 'village_name']);
+    const filtered = pkFilter ? rows.filter(r => r[pkCol] === pkFilter) : rows;
     const data: Record<string, string>[] = [];
 
     for (const row of filtered) {
       for (const [col, val] of Object.entries(row)) {
         if (identity.has(col)) continue;
-        // col format: "Agriculture_Rice (Kharif)" or "Residential_LPG"
-        const underscoreIdx = col.indexOf('_');
-        if (underscoreIdx === -1) continue;
-        const sector   = col.slice(0, underscoreIdx);
-        const activity = col.slice(underscoreIdx + 1);
+        const idx = col.indexOf('_');
+        if (idx === -1) continue;
         data.push({
-          vlcode: row.vlcode,
-          village_name: row.village_name,
-          sector,
-          activity,
+          [pkCol]:   row[pkCol],
+          [nameCol]: row[nameCol],
+          sector:    col.slice(0, idx),
+          activity:  col.slice(idx + 1),
           annual_co2_kg: val,
         });
       }
