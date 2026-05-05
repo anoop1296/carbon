@@ -1,43 +1,75 @@
 // app/api/scenario/route.ts
-// Wide cols: vlcode, village_name,
-//   BAU_2023, BAU_2025, BAU_2030, BAU_2035,
-//   LOS_2023, LOS_2025, LOS_2030, LOS_2035,
-//   ACC_2023, ACC_2025, ACC_2030, ACC_2035
-//
-// Component ScenarioRow: { vlcode, village_name, year,
-//   business_as_usual, line_of_sight, accelerated }
+// Wide CSV: vlcode, village_name, PREFIX_YEAR, PREFIX_YEAR, ...
+// Auto-detects all PREFIX groups (e.g. BAU, LOS, ACC) and years from column names.
+// Returns: { vlcode, village_name, year, <scenario_key>: value, ... }
+// scenario_key is lowercased prefix (e.g. bau_2023 → prefix "bau", mapped to readable label)
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
-import { parseCSV } from '@/lib/csvParser';
+import { readCSV } from '@/lib/csvParser';
+
+// Known label mappings for common prefix abbreviations
+const LABEL_MAP: Record<string, string> = {
+  bau: 'business_as_usual',
+  los: 'line_of_sight',
+  acc: 'accelerated',
+};
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const vlcode = searchParams.get('vlcode') || '';
 
-    const rows = await parseCSV('Scenario_Projection_Wide.csv');
-    const filtered = vlcode ? rows.filter(r => r.vlcode === vlcode) : rows;
+    const { headers, rows } = await readCSV('Scenario_Projection_Wide.csv');
+    const pkCol   = headers[0] ?? 'vlcode';
+    const nameCol = headers[1] ?? 'village_name';
+    const identity = new Set([pkCol, nameCol]);
 
-    // Collect all years from column names
-    const years = new Set<string>();
-    for (const row of filtered) {
-      for (const col of Object.keys(row)) {
-        const m = col.match(/^(?:BAU|LOS|ACC)_(\d{4})$/);
-        if (m) years.add(m[1]);
+    const filtered = vlcode ? rows.filter(r => r[pkCol] === vlcode) : rows;
+
+    // Auto-detect PREFIX_YEAR pattern from column names
+    const prefixYears = new Map<string, Set<string>>(); // prefix → set of years
+    for (const col of headers) {
+      if (identity.has(col)) continue;
+      const m = col.match(/^([A-Za-z][A-Za-z0-9]*)_(\d{4})$/);
+      if (m) {
+        const prefix = m[1].toLowerCase();
+        const year   = m[2];
+        if (!prefixYears.has(prefix)) prefixYears.set(prefix, new Set());
+        prefixYears.get(prefix)!.add(year);
       }
     }
 
+    if (prefixYears.size === 0) {
+      return NextResponse.json({ success: true, data: [] });
+    }
+
+    // All years across all prefixes, sorted
+    const allYears = Array.from(
+      new Set(Array.from(prefixYears.values()).flatMap(s => Array.from(s)))
+    ).sort();
+
+    // Map prefix → output key name (use known labels if available, else use prefix itself)
+    const prefixKeys = Array.from(prefixYears.keys()).map(prefix => ({
+      prefix,
+      outKey: LABEL_MAP[prefix] || prefix,
+    }));
+
     const data: Record<string, string>[] = [];
     for (const row of filtered) {
-      for (const year of Array.from(years).sort()) {
-        data.push({
-          vlcode:           row.vlcode,
-          village_name:     row.village_name,
+      for (const year of allYears) {
+        const entry: Record<string, string> = {
+          [pkCol]:   row[pkCol],
+          [nameCol]: row[nameCol],
           year,
-          business_as_usual: row[`BAU_${year}`] || '0',
-          line_of_sight:     row[`LOS_${year}`] || '0',
-          accelerated:       row[`ACC_${year}`] || '0',
-        });
+        };
+        for (const { prefix, outKey } of prefixKeys) {
+          // Find the original column (case-insensitive prefix match)
+          const originalCol = headers.find(
+            h => h.toLowerCase() === `${prefix}_${year}`
+          );
+          entry[outKey] = (originalCol ? row[originalCol] : '') || '0';
+        }
+        data.push(entry);
       }
     }
 

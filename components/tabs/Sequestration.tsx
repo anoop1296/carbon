@@ -1,11 +1,13 @@
 'use client';
 
-export interface SeqBeforeRow {
+import { useEffect, useState } from 'react';
+
+interface SeqBeforeRow {
   vlcode: string; village_name: string; source: string;
   area_ha: string; annual_co2_sequestered_kg: string;
   [key: string]: string;
 }
-export interface SeqAfterRow {
+interface SeqAfterRow {
   vlcode: string; village_name: string; type: string; intervention: string;
   area_added_ha: string; sequestration_factor: string;
   annual_co2_sequestration_kg: string;
@@ -26,11 +28,9 @@ const KNOWN_AFTER  = new Set(['vlcode','village_name','type','intervention','are
 
 function initials(s: string) { return s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3) || 'SEQ'; }
 
-export function SequestrationCard({ before, after }: {
-  before: SeqBeforeRow[] | null | undefined; after: SeqAfterRow[] | null | undefined;
-}) {
-  const bRows = before || [];
-  const aRows = (after || []).filter(r => r.type || r.intervention);
+function SequestrationChart({ before, after }: { before: SeqBeforeRow[]; after: SeqAfterRow[] }) {
+  const bRows = before;
+  const aRows = after.filter(r => r.type || r.intervention);
 
   const typeIdx = new Map<string, number>();
   aRows.forEach(r => { if (!typeIdx.has(r.type)) typeIdx.set(r.type, typeIdx.size); });
@@ -43,7 +43,6 @@ export function SequestrationCard({ before, after }: {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
-      {/* header */}
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Carbon Sequestration</h3>
@@ -62,7 +61,6 @@ export function SequestrationCard({ before, after }: {
       </div>
 
       <div className="grid gap-4 p-5 md:p-6 xl:grid-cols-2">
-        {/* BEFORE */}
         <div className="overflow-hidden rounded-xl border border-[#f5d78a] bg-[#fffbec]">
           <div className="flex items-center justify-between border-b border-[#f5d78a]/60 px-4 py-3">
             <div>
@@ -75,9 +73,9 @@ export function SequestrationCard({ before, after }: {
             {bRows.length === 0
               ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
               : bRows.map((r, i) => {
-                  const v = parseFloat(r.annual_co2_sequestered_kg || '0') || 0;
-                  const sh = bTotal > 0 ? (v / bTotal) * 100 : 0;
-                  const rel = (v / bMax) * 100;
+                  const v      = parseFloat(r.annual_co2_sequestered_kg || '0') || 0;
+                  const sh     = bTotal > 0 ? (v / bTotal) * 100 : 0;
+                  const rel    = (v / bMax) * 100;
                   const extras = Object.entries(r).filter(([k]) => !KNOWN_BEFORE.has(k) && r[k]?.trim());
                   return (
                     <div key={i} className="rounded-lg border border-white bg-white px-3 py-3">
@@ -103,7 +101,6 @@ export function SequestrationCard({ before, after }: {
           </div>
         </div>
 
-        {/* AFTER */}
         <div className="overflow-hidden rounded-xl border border-[#96dbb4] bg-[#edfaf3]">
           <div className="flex items-center justify-between border-b border-[#96dbb4]/60 px-4 py-3">
             <div>
@@ -116,10 +113,10 @@ export function SequestrationCard({ before, after }: {
             {aRows.length === 0
               ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
               : aRows.map((r, i) => {
-                  const v = parseFloat(r.annual_co2_sequestration_kg || '0') || 0;
-                  const sh = aTotal > 0 ? (v / aTotal) * 100 : 0;
-                  const rel = (v / aMax) * 100;
-                  const c = AFTER_COLORS[(typeIdx.get(r.type) ?? i) % AFTER_COLORS.length];
+                  const v      = parseFloat(r.annual_co2_sequestration_kg || '0') || 0;
+                  const sh     = aTotal > 0 ? (v / aTotal) * 100 : 0;
+                  const rel    = (v / aMax) * 100;
+                  const c      = AFTER_COLORS[(typeIdx.get(r.type) ?? i) % AFTER_COLORS.length];
                   const extras = Object.entries(r).filter(([k]) => !KNOWN_AFTER.has(k) && r[k]?.trim());
                   return (
                     <div key={i} className="rounded-lg border bg-white px-3 py-3" style={{ borderColor: c.border }}>
@@ -127,14 +124,11 @@ export function SequestrationCard({ before, after }: {
                         <span className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${c.pill}`}>
                           {initials(r.type || r.intervention)}
                         </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black text-[#1a1a1a] truncate">{r.intervention}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-black text-[#1a1a1a]">{r.intervention}</p>
                           <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-[#6b6860]">
-                           
                             <span>{Number(r.sequestration_factor || 0).toFixed(0)} kg/ha/yr</span>
-                            {extras.map(([k, v]) => (
-                              <span key={k}>{k.replace(/_/g,' ')}: {v}</span>
-                            ))}
+                            {extras.map(([k, v]) => <span key={k}>{k.replace(/_/g,' ')}: {v}</span>)}
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
@@ -155,6 +149,28 @@ export function SequestrationCard({ before, after }: {
   );
 }
 
-export default SequestrationCard;
-export type { FactorRow } from './EmissionFactors';
-export { default as EmissionFactors } from './EmissionFactors';
+function Spinner() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#d8f3dc] border-t-[#2d6a4f]" />
+    </div>
+  );
+}
+
+export default function Sequestration({ vlcode }: { vlcode: string }) {
+  const [before, setBefore]   = useState<SeqBeforeRow[] | null>(null);
+  const [after, setAfter]     = useState<SeqAfterRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!vlcode) return;
+    setLoading(true);
+    fetch(`/api/sequestration?vlcode=${vlcode}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { setBefore(d.before || []); setAfter(d.after || []); })
+      .finally(() => setLoading(false));
+  }, [vlcode]);
+
+  if (loading) return <Spinner />;
+  return <SequestrationChart before={before || []} after={after || []} />;
+}

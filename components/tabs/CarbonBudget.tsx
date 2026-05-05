@@ -1,17 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-export interface BudgetRow {
-  vlcode: string;
-  village_name: string;
-  parameter: string;
-  value: string;
-  unit?: string;
+interface BudgetRow {
+  vlcode: string; village_name: string;
+  parameter: string; value: string; unit?: string;
 }
 
 const COLORS = ['#990606','#c8920a','#3460c8','#1a8a50','#7830c8','#d01840','#0a8a90','#d06010','#2d6a4f','#b05010'];
-const PILL   = [
+const PILL = [
   'bg-[#fff0e8] text-[#b05010] border-[#f4b896]',
   'bg-[#fffbec] text-[#8a6208] border-[#f5d78a]',
   'bg-[#eef3ff] text-[#2040a0] border-[#b8ccf4]',
@@ -35,23 +32,16 @@ function arc(cx: number, cy: number, R: number, ri: number, s: number, e: number
 
 type Slice = { label: string; value: number; color: string; i: number };
 
-const normalizeParam = (param: string) => param.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-const isBaselinePieParam = (row: BudgetRow) => {
-  const p = normalizeParam(row.parameter);
-  return p === 'net_emission' || p === 'total_sequestration';
-};
-const isAfterPieParam = (row: BudgetRow) => {
-  const p = normalizeParam(row.parameter);
-  return p === 'total_emission_reduction' || p === 'total_sequestration_increase' || p === 'new_net_emission';
-};
-const toSlices = (rows: BudgetRow[]) =>
-  rows.length
-    ? rows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: COLORS[i % COLORS.length], i }))
-    : [{ label: 'No Data', value: 1, color: '#e4e2dd', i: 0 }];
+const norm = (p: string) => p.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const isBeforePie = (r: BudgetRow) => { const p = norm(r.parameter); return p === 'net_emission' || p === 'total_sequestration'; };
+const isAfterPie  = (r: BudgetRow) => { const p = norm(r.parameter); return p === 'total_emission_reduction' || p === 'total_sequestration_increase' || p === 'new_net_emission'; };
+const toSlices = (rows: BudgetRow[]): Slice[] =>
+  rows.length ? rows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: COLORS[i % COLORS.length], i }))
+              : [{ label: 'No Data', value: 1, color: '#e4e2dd', i: 0 }];
 
 function Donut({ slices, label }: { slices: Slice[]; label: string }) {
   const [hov, setHov] = useState<number | null>(null);
-  const total = slices.reduce((s, x) => s + x.value, 0);
+  const total  = slices.reduce((s, x) => s + x.value, 0);
   const active = hov !== null ? slices[hov] : null;
   let angle = 0;
   const built = slices.map(sl => {
@@ -83,26 +73,22 @@ function Donut({ slices, label }: { slices: Slice[]; label: string }) {
   );
 }
 
-export default function CarbonBudgetCard({ before, after }: {
-  before: BudgetRow[] | null | undefined; after: BudgetRow[] | null | undefined;
-}) {
-  const bRows = useMemo(() => (before || []).filter(r => parseFloat(r.value || '0') !== 0), [before]);
-  const aRows = useMemo(() => (after  || []).filter(r => parseFloat(r.value || '0') !== 0), [after]);
-  const bPieRows = useMemo(() => bRows.filter(isBaselinePieParam), [bRows]);
-  const aPieRows = useMemo(() => aRows.filter(isAfterPieParam), [aRows]);
+function CarbonBudgetChart({ before, after }: { before: BudgetRow[] | null; after: BudgetRow[] | null }) {
+  const bRows    = useMemo(() => (before || []).filter(r => parseFloat(r.value || '0') !== 0), [before]);
+  const aRows    = useMemo(() => (after  || []).filter(r => parseFloat(r.value || '0') !== 0), [after]);
+  const bPieRows = useMemo(() => bRows.filter(isBeforePie), [bRows]);
+  const aPieRows = useMemo(() => aRows.filter(isAfterPie),  [aRows]);
+  const bSlices  = useMemo(() => toSlices(bPieRows), [bPieRows]);
+  const aSlices  = useMemo(() => toSlices(aPieRows), [aPieRows]);
 
-  const bSlices: Slice[] = useMemo(() => toSlices(bPieRows), [bPieRows]);
-  const aSlices: Slice[] = useMemo(() => toSlices(aPieRows), [aPieRows]);
-
-  const bTotal = bRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
-  const aTotal = aRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
+  const bTotal    = bRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
+  const aTotal    = aRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
   const bPieTotal = bSlices.reduce((s, x) => s + x.value, 0);
   const aPieTotal = aSlices.reduce((s, x) => s + x.value, 0);
-  const redPct = bTotal > 0 ? ((bTotal - aTotal) / bTotal) * 100 : 0;
+  const redPct    = bTotal > 0 ? ((bTotal - aTotal) / bTotal) * 100 : 0;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
-      {/* header */}
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Carbon Budget</h3>
@@ -116,8 +102,7 @@ export default function CarbonBudgetCard({ before, after }: {
         )}
       </div>
 
-      <div className="p-5 md:p-6 space-y-6">
-        {/* KPI row — all params auto-rendered */}
+      <div className="space-y-6 p-5 md:p-6">
         {(bRows.length > 0 || aRows.length > 0) && (
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
             {[...bRows, ...aRows].map((row, i) => {
@@ -133,7 +118,6 @@ export default function CarbonBudgetCard({ before, after }: {
           </div>
         )}
 
-        {/* before / after tables */}
         <div className="grid gap-4 xl:grid-cols-2">
           {[
             { title: 'Baseline', rows: bRows, total: bTotal, accent: '#d01840', border: 'border-[#f4a0b0]', bg: 'bg-[#ffecf0]', hdr: 'border-[#f4b0be]' },
@@ -144,7 +128,7 @@ export default function CarbonBudgetCard({ before, after }: {
                 <span className="text-xs font-black uppercase tracking-widest" style={{ color: accent }}>{title}</span>
                 <span className="text-lg font-black" style={{ color: accent }}>{(tot / 1000).toFixed(1)} t</span>
               </div>
-              <div className="p-3 space-y-1.5">
+              <div className="space-y-1.5 p-3">
                 {rows.length === 0
                   ? <p className="py-4 text-center text-xs text-[#6b6860]">No data</p>
                   : rows.map((r, i) => {
@@ -157,8 +141,7 @@ export default function CarbonBudgetCard({ before, after }: {
                             <span className="font-black" style={{ color: accent }}>{(v / 1000).toFixed(2)} t</span>
                           </div>
                           <div className="mt-1.5 h-1 rounded-full bg-[#eceae5]">
-                            <div className="h-1 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.max(sh, 3)}%`, background: accent }} />
+                            <div className="h-1 rounded-full transition-all duration-500" style={{ width: `${Math.max(sh, 3)}%`, background: accent }} />
                           </div>
                         </div>
                       );
@@ -168,7 +151,6 @@ export default function CarbonBudgetCard({ before, after }: {
           ))}
         </div>
 
-        {/* donuts */}
         <div className="grid gap-5 lg:grid-cols-2">
           {[
             { slices: bSlices, total: bPieTotal, label: 'Baseline (Before)' },
@@ -192,4 +174,30 @@ export default function CarbonBudgetCard({ before, after }: {
       </div>
     </div>
   );
+}
+
+function Spinner() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#d8f3dc] border-t-[#2d6a4f]" />
+    </div>
+  );
+}
+
+export default function CarbonBudget({ vlcode }: { vlcode: string }) {
+  const [before, setBefore]   = useState<BudgetRow[] | null>(null);
+  const [after, setAfter]     = useState<BudgetRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!vlcode) return;
+    setLoading(true);
+    fetch(`/api/carbon-budget?vlcode=${vlcode}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { setBefore(d.before || []); setAfter(d.after || []); })
+      .finally(() => setLoading(false));
+  }, [vlcode]);
+
+  if (loading) return <Spinner />;
+  return <CarbonBudgetChart before={before} after={after} />;
 }

@@ -8,13 +8,19 @@ import { getFirebaseClientAuth } from '@/lib/firebaseClient';
 
 type CsvRow = Record<string, string>;
 
+interface MasterColumn {
+  key: string;
+  file: string;
+  col: string;
+  label: string;
+  isIdentity: boolean;
+}
+
 const MASTER_FILE = 'Village.csv';
-// VL_CODE and VL_NAME are derived at runtime from Village.csv column[0] and column[1]
-// These fallbacks are only used before the CSV headers are loaded
 const DEFAULT_VL_CODE = 'vlcode';
 const DEFAULT_VL_NAME = 'village_name';
+const MASTER_VIEW_ID = '__master_view__';
 
-// ── helpers ────────────────────────────────────────────────────────────────
 function toLabel(col: string) {
   return col.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -99,16 +105,22 @@ export default function AdminPage() {
   const VL_CODE = villageHeaders[0] || DEFAULT_VL_CODE;
   const VL_NAME = villageHeaders[1] || DEFAULT_VL_NAME;
 
-  // current file state
+  // current file state (individual file view)
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<CsvRow[]>([]);
+
+  // master view state
+  const [masterColumns, setMasterColumns] = useState<MasterColumn[]>([]);
+  const [masterRows, setMasterRows] = useState<CsvRow[]>([]);
+  const [masterLoading, setMasterLoading] = useState(false);
+  const [masterFilterFile, setMasterFilterFile] = useState<string>('');
 
   // ui state
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
-  // add-village modal — fields built dynamically from Village.csv headers
+  // add-village modal
   const [showAddVillage, setShowAddVillage] = useState(false);
   const [newVillage, setNewVillage] = useState<CsvRow>({});
 
@@ -116,15 +128,20 @@ export default function AdminPage() {
   const [showAddCol, setShowAddCol] = useState(false);
   const [newColName, setNewColName] = useState('');
 
-  // csv upload
+  // csv upload (per-file)
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  // master CSV upload
+  const masterUploadRef = useRef<HTMLInputElement>(null);
+  const [masterUploading, setMasterUploading] = useState(false);
 
   // delete-village confirm
   const [confirmDeleteVl, setConfirmDeleteVl] = useState(false);
 
   const activeVillage = villages.find((v) => v[VL_CODE] === activeVlcode) || null;
   const isMasterFile = activeFile === MASTER_FILE;
+  const isMasterView = activeFile === MASTER_VIEW_ID;
 
   // ── toast helper ──────────────────────────────────────────────────────────
   function showToast(type: 'ok' | 'err', msg: string) {
@@ -178,6 +195,49 @@ export default function AdminPage() {
     const d = await res.json();
     if (!res.ok || !d.success) throw new Error(d.error || 'Failed to delete column.');
     return d as { headers: string[]; rows: CsvRow[] };
+  }
+
+  // ── master view API helpers ───────────────────────────────────────────────
+  async function loadMasterView() {
+    setMasterLoading(true);
+    try {
+      const res = await fetch('/api/admin/master-view', { cache: 'no-store' });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Failed to load master view.');
+      setMasterColumns(d.columns as MasterColumn[]);
+      setMasterRows(d.rows as CsvRow[]);
+    } catch (e) {
+      showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
+    } finally {
+      setMasterLoading(false);
+    }
+  }
+
+  async function handleMasterCellChange(rowIndex: number, colKey: string, value: string) {
+    const vlcode = masterRows[rowIndex]?.[`__id__::${VL_CODE}`] || masterRows[rowIndex]?.[`__id__::vlcode`] || '';
+    if (!vlcode) return;
+
+    // Optimistic update
+    const updated = masterRows.map((r, i) => i === rowIndex ? { ...r, [colKey]: value } : r);
+    setMasterRows(updated);
+    setSaving(true);
+
+    try {
+      const res = await fetch('/api/admin/master-view', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vlcode, colKey, value }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Failed to update.');
+      showToast('ok', d.message || 'Saved.');
+      if (activeFile === MASTER_FILE) await loadVillages(activeVlcode);
+    } catch (e) {
+      showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
+      await loadMasterView();
+    } finally {
+      setSaving(false);
+    }
   }
 
   // ── load helpers ──────────────────────────────────────────────────────────
@@ -244,7 +304,12 @@ export default function AdminPage() {
 
   // reload file whenever selection changes
   useEffect(() => {
-    if (!checkingAuth && activeFile) loadFile(activeFile);
+    if (checkingAuth) return;
+    if (isMasterView) {
+      loadMasterView();
+    } else if (activeFile) {
+      loadFile(activeFile);
+    }
   }, [activeFile, checkingAuth]);
 
   // ── cell edit & save ──────────────────────────────────────────────────────
@@ -272,7 +337,6 @@ export default function AdminPage() {
       return acc;
     }, {} as CsvRow);
 
-    // auto-fill village fields for non-master files
     if (!isMasterFile && activeVillage) {
       if (headers.includes(VL_CODE)) emptyRow[VL_CODE] = activeVillage[VL_CODE] || '';
       if (headers.includes(VL_NAME)) emptyRow[VL_NAME] = activeVillage[VL_NAME] || '';
@@ -315,9 +379,6 @@ export default function AdminPage() {
     if (!col) return;
     if (headers.includes(col)) { showToast('err', `Column "${col}" already exists.`); return; }
 
-    // Add column to every existing row by saving each with the new field = ''
-    // Simplest: just update row 0 (which adds the column to the CSV headers), then reload
-    // If no rows yet, add a dummy empty row
     setSaving(true);
     try {
       if (rows.length === 0) {
@@ -407,7 +468,6 @@ export default function AdminPage() {
     uploadInputRef.current.value = '';
     if (!file) return;
 
-    // Use the active file as the target so the upload merges into the right dataset
     const targetFilename = activeFile;
 
     if (!confirm(`Upload "${file.name}" and merge into "${targetFilename}"?\n\nNew rows will be added, existing rows updated, and any new columns will be appended.`)) return;
@@ -428,6 +488,50 @@ export default function AdminPage() {
       showToast('err', normalizeError(err instanceof Error ? err.message : String(err)));
     } finally {
       setUploading(false);
+    }
+  }
+
+  // ── download single CSV ───────────────────────────────────────────────────
+  function handleDownloadFile(filename: string) {
+    const a = document.createElement('a');
+    a.href = `/api/admin/download-csv/${encodeURIComponent(filename)}`;
+    a.download = filename;
+    a.click();
+  }
+
+  // ── download master template ──────────────────────────────────────────────
+  function handleDownloadTemplate() {
+    const a = document.createElement('a');
+    a.href = '/api/admin/master-template';
+    a.download = 'master_template.csv';
+    a.click();
+  }
+
+  // ── upload filled master CSV → distribute to all files ───────────────────
+  async function handleMasterUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!masterUploadRef.current) return;
+    masterUploadRef.current.value = '';
+    if (!file) return;
+
+    if (!confirm(`Upload "${file.name}" as master CSV?\n\nData will be distributed into all matching CSV files automatically.`)) return;
+
+    setMasterUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/admin/master-import', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Upload failed.');
+      showToast('ok', d.message || `Distributed to ${d.totalFiles} file(s).`);
+      // Reload current view
+      await loadVillages(activeVlcode);
+      if (isMasterView) await loadMasterView();
+      else await loadFile(activeFile);
+    } catch (err) {
+      showToast('err', normalizeError(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setMasterUploading(false);
     }
   }
 
@@ -453,10 +557,15 @@ export default function AdminPage() {
         .filter(({ r }) => !activeVlcode || r[VL_CODE] === activeVlcode || r[VL_CODE] === '')
         .map(({ i }) => i);
 
-  // hide FK columns (vlcode, village_name) from non-master file tables — they are redundant
   const visibleHeaders = isMasterFile
     ? headers
     : headers.filter((h) => h !== VL_CODE && h !== VL_NAME);
+
+  // ── master view: group columns by file, optionally filter ─────────────────
+  const masterFilesPresent = Array.from(new Set(masterColumns.filter(c => !c.isIdentity).map(c => c.file)));
+  const filteredMasterCols = masterFilterFile
+    ? masterColumns.filter(c => c.isIdentity || c.file === masterFilterFile)
+    : masterColumns;
 
   // ── loading gate ──────────────────────────────────────────────────────────
   if (checkingAuth) {
@@ -472,14 +581,9 @@ export default function AdminPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-900">
 
-      {/* hidden file input for CSV uploads */}
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept=".csv"
-        className="hidden"
-        onChange={handleUploadCSV}
-      />
+      {/* hidden file inputs */}
+      <input ref={uploadInputRef}  type="file" accept=".csv" className="hidden" onChange={handleUploadCSV} />
+      <input ref={masterUploadRef} type="file" accept=".csv" className="hidden" onChange={handleMasterUpload} />
 
       {/* ── TOAST ── */}
       {toast && (
@@ -544,29 +648,75 @@ export default function AdminPage() {
             <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Data Files</span>
           </div>
           <nav className="flex-1 overflow-y-auto py-2">
+
+            {/* Master View entry — always first */}
+            <button
+              onClick={() => setActiveFile(MASTER_VIEW_ID)}
+              className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs transition ${
+                isMasterView
+                  ? 'bg-violet-50 font-semibold text-violet-700'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isMasterView ? 'bg-violet-500' : 'bg-slate-300'}`} />
+              <span className="truncate">Master View</span>
+              <span className="ml-auto rounded bg-violet-100 px-1 py-0.5 text-[9px] font-bold text-violet-600">ALL</span>
+            </button>
+
             {files.map((f) => {
               const isActive = activeFile === f;
               const isMaster = f === MASTER_FILE;
               return (
-                <button
-                  key={f}
-                  onClick={() => setActiveFile(f)}
-                  disabled={!isMaster && villages.length === 0}
-                  className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs transition ${
-                    isActive
-                      ? 'bg-emerald-50 font-semibold text-emerald-700'
-                      : 'text-slate-600 hover:bg-slate-50'
-                  } ${!isMaster && villages.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
-                >
-                  <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                  <span className="truncate">{f.replace('.csv', '')}</span>
-                  {isMaster && (
-                    <span className="ml-auto rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold text-emerald-600">KEY</span>
-                  )}
-                </button>
+                <div key={f} className="group flex items-center">
+                  <button
+                    onClick={() => setActiveFile(f)}
+                    disabled={!isMaster && villages.length === 0}
+                    className={`flex flex-1 items-center gap-2 px-4 py-2.5 text-left text-xs transition ${
+                      isActive
+                        ? 'bg-emerald-50 font-semibold text-emerald-700'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    } ${!isMaster && villages.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  >
+                    <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                    <span className="truncate">{f.replace('.csv', '')}</span>
+                    {isMaster && (
+                      <span className="ml-auto rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold text-emerald-600">KEY</span>
+                    )}
+                  </button>
+                  {/* per-file download button — shows on hover */}
+                  <button
+                    onClick={() => handleDownloadFile(f)}
+                    title={`Download ${f}`}
+                    className="mr-2 hidden rounded px-1.5 py-1 text-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:block"
+                  >
+                    ↓
+                  </button>
+                </div>
               );
             })}
           </nav>
+
+          {/* ── MASTER CSV PANEL ── */}
+          <div className="border-t border-slate-200 bg-slate-50 px-3 py-3 space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Master CSV</p>
+            <button
+              onClick={handleDownloadTemplate}
+              className="flex w-full items-center gap-2 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-50 transition"
+            >
+              <span>↓</span> Download Template
+            </button>
+            <button
+              onClick={() => masterUploadRef.current?.click()}
+              disabled={masterUploading}
+              className="flex w-full items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 transition disabled:opacity-50"
+            >
+              <span>↑</span> {masterUploading ? 'Uploading…' : 'Upload & Distribute'}
+            </button>
+            <p className="text-[10px] text-slate-400 leading-snug">
+              Fill the template and upload — data goes into all CSVs automatically.
+            </p>
+          </div>
+
           {villages.length === 0 && (
             <div className="border-t border-amber-100 bg-amber-50 px-4 py-3 text-[11px] text-amber-700">
               Add a village first to unlock other files.
@@ -577,138 +727,269 @@ export default function AdminPage() {
         {/* ── TABLE AREA ── */}
         <main className="flex min-w-0 flex-1 flex-col">
 
-          {/* table toolbar */}
-          <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-bold text-slate-800">{activeFile}</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                {loading ? '…' : `${visibleRows.length} row${visibleRows.length !== 1 ? 's' : ''} · ${visibleHeaders.length} col${visibleHeaders.length !== 1 ? 's' : ''}`}
-              </span>
-              {!isMasterFile && activeVillage && (
-                <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
-                  {activeVillage[VL_NAME]}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => uploadInputRef.current?.click()}
-                disabled={uploading || saving}
-                title={`Upload a CSV to merge into ${activeFile}`}
-                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-              >
-                {uploading ? 'Uploading…' : '↑ Upload CSV'}
-              </button>
-              <button
-                onClick={() => setShowAddCol(true)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
-              >
-                + Column
-              </button>
-              <button
-                onClick={handleAddRow}
-                disabled={saving || (!isMasterFile && !activeVillage)}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                + Row
-              </button>
-              {isMasterFile && (
-                <button
-                  onClick={() => setShowAddVillage(true)}
-                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-                >
-                  + New Village
-                </button>
-              )}
-              {isMasterFile && activeVillage && (
-                <button
-                  onClick={() => setConfirmDeleteVl(true)}
-                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100"
-                >
-                  Delete Village
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* table */}
-          <div className="flex-1 overflow-auto">
-            {loading ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>
-            ) : headers.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                Select a file from the sidebar.
+          {isMasterView ? (
+            /* ── MASTER VIEW ── */
+            <>
+              {/* master toolbar */}
+              <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-2.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold text-slate-800">Master View</span>
+                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                    {masterLoading ? '…' : `${masterRows.length} village${masterRows.length !== 1 ? 's' : ''} · ${filteredMasterCols.length} col${filteredMasterCols.length !== 1 ? 's' : ''}`}
+                  </span>
+                  <span className="text-[11px] text-slate-400">All CSV attributes in one view · click any cell to edit</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">Filter by file:</span>
+                  <select
+                    value={masterFilterFile}
+                    onChange={(e) => setMasterFilterFile(e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium outline-none focus:border-violet-400"
+                  >
+                    <option value="">All files</option>
+                    {masterFilesPresent.map(f => (
+                      <option key={f} value={f}>{f.replace('.csv', '')}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-violet-300 hover:text-violet-700"
+                  >
+                    ↓ Template
+                  </button>
+                  <button
+                    onClick={() => masterUploadRef.current?.click()}
+                    disabled={masterUploading}
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    {masterUploading ? 'Uploading…' : '↑ Upload CSV'}
+                  </button>
+                  <button
+                    onClick={loadMasterView}
+                    disabled={masterLoading}
+                    className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                  >
+                    {masterLoading ? 'Loading…' : '↺ Refresh'}
+                  </button>
+                </div>
               </div>
-            ) : (
-              <table className="min-w-full border-collapse text-left">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-slate-800 text-white">
-                    <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
-                    {visibleHeaders.map((h) => {
-                      const isProtected = h === VL_CODE || h === VL_NAME;
-                      return (
-                        <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
-                          <div className="flex items-center gap-1.5">
-                            <span>{toLabel(h)}</span>
-                            {!isProtected && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteColumn(h)}
-                                title={`Delete column "${h}"`}
-                                className="hidden rounded px-1 py-0.5 text-[9px] font-bold text-red-300 opacity-0 transition hover:bg-red-800 hover:text-red-100 group-hover:block group-hover:opacity-100"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </th>
-                      );
-                    })}
-                    <th className="w-14 px-3 py-2.5 text-[10px] font-semibold text-slate-400">Del</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={visibleHeaders.length + 2} className="px-4 py-12 text-center text-sm text-slate-400">
-                        No rows yet — click "+ Row" to add one.
-                      </td>
-                    </tr>
-                  ) : (
-                    visibleRows.map((row, visIdx) => {
-                      const realIdx = visibleRowIndices[visIdx];
-                      return (
-                        <tr key={`${activeFile}-${realIdx}`} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="px-3 py-2 text-[11px] font-bold text-slate-400">{visIdx + 1}</td>
-                          {visibleHeaders.map((h) => (
-                            <td key={h} className="px-3 py-1.5">
+
+              {/* master table */}
+              <div className="flex-1 overflow-auto">
+                {masterLoading ? (
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading master view…</div>
+                ) : masterRows.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">No village data found.</div>
+                ) : (
+                  <table className="min-w-full border-collapse text-left">
+                    <thead className="sticky top-0 z-10">
+                      {/* File group header row */}
+                      <tr className="bg-slate-700 text-white text-[10px]">
+                        <th className="w-10 px-3 py-1.5 text-slate-400">#</th>
+                        {(() => {
+                          const groups: { file: string; count: number }[] = [];
+                          for (const col of filteredMasterCols) {
+                            const label = col.isIdentity ? 'Village ID' : col.file.replace('.csv', '');
+                            if (groups.length === 0 || groups[groups.length - 1].file !== label) {
+                              groups.push({ file: label, count: 1 });
+                            } else {
+                              groups[groups.length - 1].count++;
+                            }
+                          }
+                          return groups.map((g, i) => (
+                            <th key={i} colSpan={g.count}
+                              className={`px-3 py-1.5 font-semibold uppercase tracking-widest border-l border-slate-600 ${
+                                g.file === 'Village ID' ? 'text-sky-300' : 'text-violet-300'
+                              }`}>
+                              {g.file}
+                            </th>
+                          ));
+                        })()}
+                      </tr>
+                      {/* Column name row */}
+                      <tr className="bg-slate-800 text-white">
+                        <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
+                        {filteredMasterCols.map((col, i) => (
+                          <th key={col.key}
+                            className={`whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              i === 0 || (i > 0 && filteredMasterCols[i - 1]?.file !== col.file && !col.isIdentity)
+                                ? 'border-l border-slate-600'
+                                : ''
+                            }`}>
+                            {toLabel(col.col)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {masterRows.map((row, rowIdx) => (
+                        <tr key={rowIdx} className="border-b border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2 text-[11px] font-bold text-slate-400">{rowIdx + 1}</td>
+                          {filteredMasterCols.map((col, colIdx) => (
+                            <td key={col.key}
+                              className={`px-3 py-1.5 ${
+                                colIdx === 0 || (colIdx > 0 && filteredMasterCols[colIdx - 1]?.file !== col.file && !col.isIdentity)
+                                  ? 'border-l border-slate-100'
+                                  : ''
+                              }`}>
                               <EditCell
-                                value={row[h] || ''}
-                                locked={false}
-                                onChange={(val) => handleCellChange(realIdx, h, val)}
+                                value={row[col.key] || ''}
+                                locked={col.isIdentity}
+                                onChange={(val) => handleMasterCellChange(rowIdx, col.key, val)}
                               />
                             </td>
                           ))}
-                          <td className="px-3 py-1.5">
-                            <button
-                              onClick={() => handleDeleteRow(realIdx)}
-                              className="rounded px-2 py-1 text-[11px] font-semibold text-red-400 hover:bg-red-50 hover:text-red-600"
-                            >
-                              ✕
-                            </button>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          ) : (
+            /* ── INDIVIDUAL FILE VIEW ── */
+            <>
+              {/* table toolbar */}
+              <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-2.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-bold text-slate-800">{activeFile}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                    {loading ? '…' : `${visibleRows.length} row${visibleRows.length !== 1 ? 's' : ''} · ${visibleHeaders.length} col${visibleHeaders.length !== 1 ? 's' : ''}`}
+                  </span>
+                  {!isMasterFile && activeVillage && (
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                      {activeVillage[VL_NAME]}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDownloadFile(activeFile)}
+                    title={`Download ${activeFile}`}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-800"
+                  >
+                    ↓ Download
+                  </button>
+                  <button
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={uploading || saving}
+                    title={`Upload a CSV to merge into ${activeFile}`}
+                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {uploading ? 'Uploading…' : '↑ Upload CSV'}
+                  </button>
+                  <button
+                    onClick={() => setShowAddCol(true)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-700"
+                  >
+                    + Column
+                  </button>
+                  <button
+                    onClick={handleAddRow}
+                    disabled={saving || (!isMasterFile && !activeVillage)}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    + Row
+                  </button>
+                  {isMasterFile && (
+                    <button
+                      onClick={() => setShowAddVillage(true)}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      + New Village
+                    </button>
+                  )}
+                  {isMasterFile && activeVillage && (
+                    <button
+                      onClick={() => setConfirmDeleteVl(true)}
+                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100"
+                    >
+                      Delete Village
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* table */}
+              <div className="flex-1 overflow-auto">
+                {loading ? (
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>
+                ) : headers.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                    Select a file from the sidebar.
+                  </div>
+                ) : (
+                  <table className="min-w-full border-collapse text-left">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-slate-800 text-white">
+                        <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
+                        {visibleHeaders.map((h) => {
+                          const isProtected = h === VL_CODE || h === VL_NAME;
+                          return (
+                            <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
+                              <div className="flex items-center gap-1.5">
+                                <span>{toLabel(h)}</span>
+                                {!isProtected && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteColumn(h)}
+                                    title={`Delete column "${h}"`}
+                                    className="hidden rounded px-1 py-0.5 text-[9px] font-bold text-red-300 opacity-0 transition hover:bg-red-800 hover:text-red-100 group-hover:block group-hover:opacity-100"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            </th>
+                          );
+                        })}
+                        <th className="w-14 px-3 py-2.5 text-[10px] font-semibold text-slate-400">Del</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={visibleHeaders.length + 2} className="px-4 py-12 text-center text-sm text-slate-400">
+                            No rows yet — click "+ Row" to add one.
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
+                      ) : (
+                        visibleRows.map((row, visIdx) => {
+                          const realIdx = visibleRowIndices[visIdx];
+                          return (
+                            <tr key={`${activeFile}-${realIdx}`} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="px-3 py-2 text-[11px] font-bold text-slate-400">{visIdx + 1}</td>
+                              {visibleHeaders.map((h) => (
+                                <td key={h} className="px-3 py-1.5">
+                                  <EditCell
+                                    value={row[h] || ''}
+                                    locked={false}
+                                    onChange={(val) => handleCellChange(realIdx, h, val)}
+                                  />
+                                </td>
+                              ))}
+                              <td className="px-3 py-1.5">
+                                <button
+                                  onClick={() => handleDeleteRow(realIdx)}
+                                  className="rounded px-2 py-1 text-[11px] font-semibold text-red-400 hover:bg-red-50 hover:text-red-600"
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          )}
         </main>
       </div>
 
-      {/* ── ADD VILLAGE MODAL ── dynamic fields from Village.csv headers ── */}
+      {/* ── ADD VILLAGE MODAL ── */}
       {showAddVillage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">

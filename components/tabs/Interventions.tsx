@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
-export interface ReductionRow {
+interface ReductionRow {
   vlcode: string; village_name: string; sector: string; intervention: string;
   activity_reduction: string; emission_factor: string; annual_co2_reduction_kg: string;
   [key: string]: string;
@@ -24,12 +24,11 @@ const COLORS = [
 
 function toNum(v: string) { const n = parseFloat(v || '0'); return isFinite(n) ? n : 0; }
 function trunc(s: string, n = 18) { return s.length > n ? s.slice(0, n) + '…' : s; }
-
 const KNOWN = new Set(['vlcode','village_name','sector','intervention','activity_reduction','emission_factor','annual_co2_reduction_kg']);
 
-export default function InterventionReductions({ rows }: { rows: ReductionRow[] | null | undefined }) {
-  const [narrow, setNarrow] = useState(false);
-  const [selSector, setSelSector] = useState<string | null>(null);
+function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
+  const [narrow, setNarrow]     = useState(false);
+  const [selSector, setSector]  = useState<string | null>(null);
 
   useEffect(() => {
     const fn = () => setNarrow(window.innerWidth < 640);
@@ -37,8 +36,7 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  const items = useMemo(() => (rows || []).filter(r => r.sector || r.intervention), [rows]);
-
+  const items = useMemo(() => rows.filter(r => r.sector || r.intervention), [rows]);
   const sectorIdx = useMemo(() => {
     const m = new Map<string, number>();
     items.forEach(r => { if (!m.has(r.sector)) m.set(r.sector, m.size); });
@@ -59,7 +57,7 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
     type: 'bar', name: 'CO₂ Reduction',
     marker: {
       color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar),
-      line: { color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar), width: 0 },
+      line:  { color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar), width: 0 },
     },
     hovertemplate: '<b>%{x}</b><br>%{y:.3f} t/yr<extra></extra>',
   }];
@@ -76,7 +74,6 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
-      {/* header */}
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Intervention Reductions</h3>
@@ -89,17 +86,16 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
         </div>
       </div>
 
-      <div className="p-5 md:p-6 space-y-5">
-        {/* sector filter */}
+      <div className="space-y-5 p-5 md:p-6">
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" onClick={() => setSelSector(null)}
+          <button type="button" onClick={() => setSector(null)}
             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${!selSector ? 'border-[#1a1a1a] bg-[#1a1a1a] text-white' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#1a1a1a]'}`}>
             All
           </button>
           {sectors.map(s => {
             const c = COLORS[(sectorIdx.get(s) ?? 0) % COLORS.length];
             return (
-              <button key={s} type="button" onClick={() => setSelSector(selSector === s ? null : s)}
+              <button key={s} type="button" onClick={() => setSector(selSector === s ? null : s)}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${selSector === s ? c.pill : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#1a1a1a]'}`}>
                 {s}
               </button>
@@ -107,32 +103,30 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
           })}
         </div>
 
-        {/* chart */}
         <div className="min-h-[280px] rounded-xl border border-[#e4e2dd] bg-white p-2 md:min-h-[340px]">
           <Plot data={plotData as never[]} layout={layout as never}
             config={{ responsive: true, displayModeBar: false }}
             className="h-full w-full" useResizeHandler />
         </div>
 
-        {/* cards — extra columns auto-shown */}
         <div>
           <p className="mb-2 text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">Intervention Details</p>
           <div className="space-y-2">
             {filtered.map((r, i) => {
-              const c = COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length];
+              const c      = COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length];
               const extras = Object.entries(r).filter(([k]) => !KNOWN.has(k) && r[k]?.trim());
               return (
                 <div key={i} className={`overflow-hidden rounded-xl border p-4 ${c.card}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="min-w-0">
-                      <p className="text-sm font-black text-[#1a1a1a] truncate">{r.intervention || '—'}</p>
+                      <p className="truncate text-sm font-black text-[#1a1a1a]">{r.intervention || '—'}</p>
                       <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${c.pill}`}>{r.sector}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {[
                         { l: 'CO₂ Saved', v: `${(toNum(r.annual_co2_reduction_kg) / 1000).toFixed(3)} t` },
                         { l: 'Activity Δ', v: toNum(r.activity_reduction).toFixed(2) },
-                        { l: 'EF', v: toNum(r.emission_factor).toFixed(4) },
+                        { l: 'EF',         v: toNum(r.emission_factor).toFixed(4) },
                         ...extras.map(([k, v]) => ({ l: k.replace(/_/g,' '), v })),
                       ].map(card => (
                         <div key={card.l} className="rounded-lg border border-white bg-white px-3 py-2">
@@ -150,4 +144,29 @@ export default function InterventionReductions({ rows }: { rows: ReductionRow[] 
       </div>
     </div>
   );
+}
+
+function Spinner() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#d8f3dc] border-t-[#2d6a4f]" />
+    </div>
+  );
+}
+
+export default function Interventions({ vlcode }: { vlcode: string }) {
+  const [rows, setRows]       = useState<ReductionRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!vlcode) return;
+    setLoading(true);
+    fetch(`/api/reductions?vlcode=${vlcode}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => setRows(d.data || []))
+      .finally(() => setLoading(false));
+  }, [vlcode]);
+
+  if (loading) return <Spinner />;
+  return <InterventionsChart rows={rows || []} />;
 }

@@ -2,37 +2,33 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-export interface EmissionRow {
-  vlcode: string;
-  village_name: string;
-  sector: string;
-  activity: string;
-  annual_co2_kg: string;
-}
-
 type Sort = 'value' | 'sector' | 'alpha';
 
-// Fixed colour palette — one per sector slot, cycles if more sectors added
+interface EmissionRow {
+  vlcode: string; village_name: string;
+  sector: string; activity: string; annual_co2_kg: string;
+}
+
 const SECTOR_COLORS = [
-  { bg: '#fff0e8', border: '#f4b896', bar: '#e2711d', text: '#b05010', pill: '#fde8d8 text-[#b05010]' },
-  { bg: '#fffbec', border: '#f5d78a', bar: '#c8920a', text: '#8a6208', pill: '#fef8e0 text-[#8a6208]' },
-  { bg: '#eef3ff', border: '#b8ccf4', bar: '#3460c8', text: '#2040a0', pill: '#dce8ff text-[#2040a0]' },
-  { bg: '#edfaf3', border: '#96dbb4', bar: '#1a8a50', text: '#106030', pill: '#d4f4e4 text-[#106030]' },
-  { bg: '#f8eeff', border: '#d0a8f4', bar: '#7830c8', text: '#5020a0', pill: '#eedcff text-[#5020a0]' },
-  { bg: '#ffecf0', border: '#f4a0b0', bar: '#d01840', text: '#a01030', pill: '#ffdce4 text-[#a01030]' },
-  { bg: '#ecfcfc', border: '#8cd8d8', bar: '#0a8a90', text: '#066066', pill: '#d0f8f8 text-[#066066]' },
-  { bg: '#fef4ec', border: '#f0c090', bar: '#d06010', text: '#904008', pill: '#fde8d0 text-[#904008]' },
+  { bg: '#fff0e8', border: '#f4b896', bar: '#e2711d', text: '#b05010' },
+  { bg: '#fffbec', border: '#f5d78a', bar: '#c8920a', text: '#8a6208' },
+  { bg: '#eef3ff', border: '#b8ccf4', bar: '#3460c8', text: '#2040a0' },
+  { bg: '#edfaf3', border: '#96dbb4', bar: '#1a8a50', text: '#106030' },
+  { bg: '#f8eeff', border: '#d0a8f4', bar: '#7830c8', text: '#5020a0' },
+  { bg: '#ffecf0', border: '#f4a0b0', bar: '#d01840', text: '#a01030' },
+  { bg: '#ecfcfc', border: '#8cd8d8', bar: '#0a8a90', text: '#066066' },
+  { bg: '#fef4ec', border: '#f0c090', bar: '#d06010', text: '#904008' },
 ];
 
 function pct(v: number, mx: number) { return mx > 0 ? Math.min(100, (v / mx) * 100) : 0; }
 function fmtT(kg: number) { return (kg / 1000).toFixed(2); }
 function short(s: string, n = 32) { return s.length > n ? s.slice(0, n) + '…' : s; }
 
-export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | undefined }) {
-  const [sort, setSort]       = useState<Sort>('value');
-  const [topN, setTopN]       = useState(6);
-  const [sector, setSector]   = useState<string | null>(null);
-  const [picked, setPicked]   = useState<string | null>(null);
+function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
+  const [sort, setSort]     = useState<Sort>('value');
+  const [topN, setTopN]     = useState(6);
+  const [sector, setSector] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
 
   const sectorIdx = useMemo(() => {
     const m = new Map<string, number>();
@@ -71,7 +67,6 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
-      {/* header band */}
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Annual CO₂ Emissions</h3>
@@ -85,8 +80,7 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
       </div>
 
       <div className="p-5 md:p-6">
-        {/* sort + topN controls */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           {(['value','sector','alpha'] as Sort[]).map(m => (
             <button key={m} type="button" onClick={() => setSort(m)}
               className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${sort === m ? 'border-[#2d6a4f] bg-[#2d6a4f] text-white' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#2d6a4f] hover:text-[#2d6a4f]'}`}>
@@ -103,7 +97,6 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
           </span>
         </div>
 
-        {/* sector filter pills */}
         <div className="mb-5 flex flex-wrap gap-1.5">
           <button type="button" onClick={() => setSector(null)}
             className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${!sector ? 'border-[#1a1a1a] bg-[#1a1a1a] text-white' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#1a1a1a]'}`}>
@@ -121,9 +114,7 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
           })}
         </div>
 
-        {/* two-col layout */}
         <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-          {/* bar list */}
           <div className="space-y-2">
             {visible.map(item => {
               const c = SECTOR_COLORS[(sectorIdx.get(item.sector) ?? 0) % SECTOR_COLORS.length];
@@ -134,14 +125,11 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
                   className={`w-full rounded-xl border p-4 text-left transition-all hover:border-[#c8c5be] ${isAct ? 'shadow-sm' : 'border-[#e4e2dd] bg-white'}`}>
                   <div className="flex items-center gap-3">
                     <span className="shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider"
-                      style={{ background: c.bg, borderColor: c.border, color: c.text }}>
-                      {item.sector}
-                    </span>
+                      style={{ background: c.bg, borderColor: c.border, color: c.text }}>{item.sector}</span>
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1a1a1a]">{short(item.label, 36)}</span>
                     <span className="shrink-0 text-sm font-black" style={{ color: c.text }}>{((item.value / total) * 100).toFixed(1)}%</span>
                     <span className="shrink-0 text-xs text-[#6b6860]">{fmtT(item.value)} t</span>
                   </div>
-                  {/* bar track */}
                   <div className="mt-3 h-2 rounded-full bg-[#f4f2ee]">
                     <div className="h-2 rounded-full transition-all duration-500"
                       style={{ width: `${Math.max(pct(item.value, maxVal), 4)}%`, background: c.bar }} />
@@ -151,7 +139,6 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
             })}
           </div>
 
-          {/* detail panel */}
           {sel && (() => {
             const c = SECTOR_COLORS[(sectorIdx.get(sel.sector) ?? 0) % SECTOR_COLORS.length];
             return (
@@ -175,8 +162,6 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
                     ))}
                   </div>
                 </div>
-
-                {/* sector summary */}
                 <div className="rounded-xl border border-[#e4e2dd] bg-[#f8f7f4] p-4">
                   <p className="mb-2 text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">Sector Share</p>
                   <div className="space-y-2">
@@ -206,4 +191,29 @@ export default function EmissionsChart({ rows }: { rows: EmissionRow[] | null | 
       </div>
     </div>
   );
+}
+
+function Spinner() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-[#d8f3dc] border-t-[#2d6a4f]" />
+    </div>
+  );
+}
+
+export default function Emissions({ vlcode }: { vlcode: string }) {
+  const [rows, setRows]       = useState<EmissionRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!vlcode) return;
+    setLoading(true);
+    fetch(`/api/emissions?vlcode=${vlcode}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => setRows(d.data || []))
+      .finally(() => setLoading(false));
+  }, [vlcode]);
+
+  if (loading) return <Spinner />;
+  return <EmissionsChart rows={rows} />;
 }
