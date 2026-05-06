@@ -22,6 +22,10 @@ function arc(cx: number, cy: number, R: number, ri: number, s: number, e: number
 type Slice = { label: string; value: number; color: string; i: number };
 
 const norm = (p: string) => p.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const rowValue = (rows: BudgetRow[], parameter: string) => {
+  const row = rows.find((r) => norm(r.parameter) === parameter);
+  return row ? parseFloat(row.value || '0') : 0;
+};
 const isBeforePie = (r: BudgetRow) => { const p = norm(r.parameter); return p === 'net_emission' || p === 'total_sequestration'; };
 const isAfterPie  = (r: BudgetRow) => { const p = norm(r.parameter); return p === 'total_emission_reduction' || p === 'total_sequestration_increase' || p === 'new_net_emission'; };
 const toSlices = (rows: BudgetRow[]): Slice[] =>
@@ -74,7 +78,12 @@ function CarbonBudgetChart({ before, after }: { before: BudgetRow[] | null; afte
   const aTotal    = aRows.reduce((s, r) => s + Math.abs(parseFloat(r.value || '0')), 0);
   const bPieTotal = bSlices.reduce((s, x) => s + x.value, 0);
   const aPieTotal = aSlices.reduce((s, x) => s + x.value, 0);
-  const redPct    = bTotal > 0 ? ((bTotal - aTotal) / bTotal) * 100 : 0;
+  const previousNetEmission = Math.abs(rowValue(bRows, 'net_emission'));
+  const totalImpactReduction = rowValue(aRows, 'total_emission_reduction');
+  const sequestration = rowValue(aRows, 'total_sequestration_increase');
+  const redPct = previousNetEmission > 0
+    ? ((totalImpactReduction + sequestration) / previousNetEmission) * 100
+    : 0;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
