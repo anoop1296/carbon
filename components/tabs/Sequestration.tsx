@@ -2,17 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-interface SeqBeforeRow {
-  vlcode: string; village_name: string; source: string;
-  area_ha: string; annual_co2_sequestered_kg: string;
-  [key: string]: string;
-}
-interface SeqAfterRow {
-  vlcode: string; village_name: string; type: string; intervention: string;
-  area_added_ha: string; sequestration_factor: string;
-  annual_co2_sequestration_kg: string;
-  [key: string]: string;
-}
+type Row = Record<string, string>;
 
 const AFTER_COLORS = [
   { bg: '#edfaf3', border: '#96dbb4', bar: '#1a8a50', text: '#106030', pill: 'bg-[#d4f4e4] text-[#106030] border-[#96dbb4]' },
@@ -23,30 +13,68 @@ const AFTER_COLORS = [
   { bg: '#fef4ec', border: '#f0c090', bar: '#d06010', text: '#904008', pill: 'bg-[#fde8d0] text-[#904008] border-[#f0c090]' },
 ];
 
-const KNOWN_BEFORE = new Set(['vlcode','village_name','source','area_ha','annual_co2_sequestered_kg']);
-const KNOWN_AFTER  = new Set(['vlcode','village_name','type','intervention','area_added_ha','sequestration_factor','annual_co2_sequestration_kg']);
+const IDENTITY = new Set(['vlcode', 'village_name']);
 
+function toLabel(k: string) { return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function initials(s: string) { return s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3) || 'SEQ'; }
+// Heuristic: pick the numeric field most likely to represent CO2 value
+function co2Field(row: Row): string {
+  const keys = Object.keys(row).filter(k => !IDENTITY.has(k));
+  const co2   = keys.find(k => /co2|seq|carbon/i.test(k) && /kg/i.test(k));
+  const kg    = keys.find(k => /kg/i.test(k));
+  return co2 || kg || keys[keys.length - 1] || '';
+}
 
-function SequestrationChart({ before, after }: { before: SeqBeforeRow[]; after: SeqAfterRow[] }) {
+function areaField(row: Row): string {
+  const keys = Object.keys(row).filter(k => !IDENTITY.has(k));
+  return keys.find(k => /area|ha/i.test(k)) || '';
+}
+
+// Pick the "name/label" field for a before row (source of sequestration)
+function labelField(row: Row): string {
+  const keys = Object.keys(row).filter(k => !IDENTITY.has(k));
+  const src  = keys.find(k => /source|name|type|label/i.test(k));
+  return src || keys[0] || '';
+}
+
+function SequestrationChart({ before, after }: { before: Row[]; after: Row[] }) {
   const bRows = before;
-  const aRows = after.filter(r => r.type || r.intervention);
+  const aRows = after;
 
-  const typeIdx = new Map<string, number>();
-  aRows.forEach(r => { if (!typeIdx.has(r.type)) typeIdx.set(r.type, typeIdx.size); });
+  // Determine display fields dynamically per row
+  const bCo2Field   = bRows[0] ? co2Field(bRows[0])   : '';
+  const bAreaField  = bRows[0] ? areaField(bRows[0])  : '';
+  const bLabelField = bRows[0] ? labelField(bRows[0]) : '';
+  const aCo2Field   = aRows[0] ? co2Field(aRows[0])   : '';
+  const aAreaField  = aRows[0] ? areaField(aRows[0])  : '';
 
-  const bTotal = bRows.reduce((s, r) => s + (parseFloat(r.annual_co2_sequestered_kg || '0') || 0), 0);
-  const aTotal = aRows.reduce((s, r) => s + (parseFloat(r.annual_co2_sequestration_kg || '0') || 0), 0);
-  const aArea  = aRows.reduce((s, r) => s + (parseFloat(r.area_added_ha || '0') || 0), 0);
-  const bMax   = Math.max(...bRows.map(r => parseFloat(r.annual_co2_sequestered_kg || '0') || 0), 1);
-  const aMax   = Math.max(...aRows.map(r => parseFloat(r.annual_co2_sequestration_kg || '0') || 0), 1);
+  // For "after" label: pick first non-identity non-co2 non-area field as name
+  function afterLabel(row: Row): string {
+    const keys = Object.keys(row).filter(k => !IDENTITY.has(k) && k !== aCo2Field && k !== aAreaField);
+    return row[keys[0]] || row[aCo2Field] || '';
+  }
+
+  const bTotal = bRows.reduce((s, r) => s + (parseFloat(r[bCo2Field] || '0') || 0), 0);
+  const aTotal = aRows.reduce((s, r) => s + (parseFloat(r[aCo2Field] || '0') || 0), 0);
+  const bMax   = Math.max(...bRows.map(r => parseFloat(r[bCo2Field] || '0') || 0), 1);
+  const aMax   = Math.max(...aRows.map(r => parseFloat(r[aCo2Field] || '0') || 0), 1);
+
+  // Extra fields beyond the main ones
+  function bExtras(row: Row) {
+    const main = new Set([bCo2Field, bAreaField, bLabelField]);
+    return Object.entries(row).filter(([k, v]) => !IDENTITY.has(k) && !main.has(k) && v?.trim());
+  }
+  function aExtras(row: Row) {
+    const main = new Set([aCo2Field, aAreaField]);
+    return Object.entries(row).filter(([k, v]) => !IDENTITY.has(k) && !main.has(k) && v?.trim());
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Carbon Sequestration</h3>
-          <p className="mt-0.5 text-xs text-[#6b6860]">Natural sinks + intervention planting · auto-detected fields</p>
+          <p className="mt-0.5 text-xs text-[#6b6860]">Natural sinks + intervention planting · fields auto-detected</p>
         </div>
         <div className="flex gap-3">
           <div className="rounded-xl border border-[#f5d78a] bg-[#fffbec] px-4 py-2 text-center">
@@ -61,6 +89,7 @@ function SequestrationChart({ before, after }: { before: SeqBeforeRow[]; after: 
       </div>
 
       <div className="grid gap-4 p-5 md:p-6 xl:grid-cols-2">
+        {/* BEFORE panel */}
         <div className="overflow-hidden rounded-xl border border-[#f5d78a] bg-[#fffbec]">
           <div className="flex items-center justify-between border-b border-[#f5d78a]/60 px-4 py-3">
             <div>
@@ -73,18 +102,19 @@ function SequestrationChart({ before, after }: { before: SeqBeforeRow[]; after: 
             {bRows.length === 0
               ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
               : bRows.map((r, i) => {
-                  const v      = parseFloat(r.annual_co2_sequestered_kg || '0') || 0;
-                  const sh     = bTotal > 0 ? (v / bTotal) * 100 : 0;
-                  const rel    = (v / bMax) * 100;
-                  const extras = Object.entries(r).filter(([k]) => !KNOWN_BEFORE.has(k) && r[k]?.trim());
+                  const v   = parseFloat(r[bCo2Field] || '0') || 0;
+                  const sh  = bTotal > 0 ? (v / bTotal) * 100 : 0;
+                  const rel = (v / bMax) * 100;
+                  const lbl = r[bLabelField] || `Row ${i + 1}`;
+                  const area = r[bAreaField];
                   return (
                     <div key={i} className="rounded-lg border border-white bg-white px-3 py-3">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-black text-[#1a1a1a]">{r.source || 'Unknown'}</p>
-                          <p className="text-[10px] text-[#6b6860]">{Number(r.area_ha || 0).toFixed(1)} ha</p>
-                          {extras.map(([k, v]) => (
-                            <span key={k} className="mr-2 text-[9px] text-[#6b6860]">{k.replace(/_/g,' ')}: {v}</span>
+                          <p className="text-sm font-black text-[#1a1a1a]">{lbl}</p>
+                          {area && <p className="text-[10px] text-[#6b6860]">{Number(area).toFixed(1)} ha</p>}
+                          {bExtras(r).map(([k, v]) => (
+                            <span key={k} className="mr-2 text-[9px] text-[#6b6860]">{toLabel(k)}: {v}</span>
                           ))}
                         </div>
                         <div className="text-right">
@@ -101,11 +131,11 @@ function SequestrationChart({ before, after }: { before: SeqBeforeRow[]; after: 
           </div>
         </div>
 
+        {/* AFTER panel */}
         <div className="overflow-hidden rounded-xl border border-[#96dbb4] bg-[#edfaf3]">
           <div className="flex items-center justify-between border-b border-[#96dbb4]/60 px-4 py-3">
             <div>
               <p className="text-[9px] font-black uppercase tracking-widest text-[#106030]">Added Interventions</p>
-              <p className="text-[10px] text-[#1a8a50]">{aArea.toFixed(1)} ha planted</p>
             </div>
             <p className="text-xl font-black text-[#1a8a50]">{(aTotal / 1000).toFixed(1)} t</p>
           </div>
@@ -113,22 +143,23 @@ function SequestrationChart({ before, after }: { before: SeqBeforeRow[]; after: 
             {aRows.length === 0
               ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
               : aRows.map((r, i) => {
-                  const v      = parseFloat(r.annual_co2_sequestration_kg || '0') || 0;
-                  const sh     = aTotal > 0 ? (v / aTotal) * 100 : 0;
-                  const rel    = (v / aMax) * 100;
-                  const c      = AFTER_COLORS[(typeIdx.get(r.type) ?? i) % AFTER_COLORS.length];
-                  const extras = Object.entries(r).filter(([k]) => !KNOWN_AFTER.has(k) && r[k]?.trim());
+                  const v   = parseFloat(r[aCo2Field] || '0') || 0;
+                  const sh  = aTotal > 0 ? (v / aTotal) * 100 : 0;
+                  const rel = (v / aMax) * 100;
+                  const c   = AFTER_COLORS[i % AFTER_COLORS.length];
+                  const lbl = afterLabel(r) || `Row ${i + 1}`;
                   return (
                     <div key={i} className="rounded-lg border bg-white px-3 py-3" style={{ borderColor: c.border }}>
                       <div className="flex items-start gap-2">
                         <span className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${c.pill}`}>
-                          {initials(r.type || r.intervention)}
+                          {initials(lbl)}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-black text-[#1a1a1a]">{r.intervention}</p>
+                          <p className="truncate text-sm font-black text-[#1a1a1a]">{lbl}</p>
                           <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-[#6b6860]">
-                            <span>{Number(r.sequestration_factor || 0).toFixed(0)} kg/ha/yr</span>
-                            {extras.map(([k, v]) => <span key={k}>{k.replace(/_/g,' ')}: {v}</span>)}
+                            {aExtras(r).map(([k, v]) => (
+                              <span key={k}>{toLabel(k)}: {v}</span>
+                            ))}
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
@@ -158,8 +189,8 @@ function Spinner() {
 }
 
 export default function Sequestration({ vlcode }: { vlcode: string }) {
-  const [before, setBefore]   = useState<SeqBeforeRow[] | null>(null);
-  const [after, setAfter]     = useState<SeqAfterRow[] | null>(null);
+  const [before, setBefore]   = useState<Row[] | null>(null);
+  const [after, setAfter]     = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

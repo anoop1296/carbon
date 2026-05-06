@@ -1,6 +1,3 @@
-// app/api/emissions/route.ts
-// Wide CSV: first two columns are the identity key (pk) and name.
-// All remaining columns are "Sector_Activity" pairs → unpivoted.
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { readCSV } from '@/lib/csvParser';
@@ -10,7 +7,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const pkFilter = searchParams.get('vlcode') || '';
 
-    const { headers, rows } = await readCSV('Annual_Emissions_Wide.csv');
+    const { headers, rows } = await readCSV('emissions.csv');
     const pkCol   = headers[0] ?? 'vlcode';
     const nameCol = headers[1] ?? 'village_name';
     const identity = new Set([pkCol, nameCol]);
@@ -24,10 +21,10 @@ export async function GET(req: Request) {
         const idx = col.indexOf('_');
         if (idx === -1) continue;
         data.push({
-          [pkCol]:   row[pkCol],
-          [nameCol]: row[nameCol],
-          sector:    col.slice(0, idx),
-          activity:  col.slice(idx + 1),
+          [pkCol]:       row[pkCol],
+          [nameCol]:     row[nameCol],
+          sector:        col.slice(0, idx),
+          activity:      col.slice(idx + 1),
           annual_co2_kg: val,
         });
       }

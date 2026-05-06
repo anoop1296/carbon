@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'Uploaded CSV has no data rows.' }, { status: 400 });
     }
 
-    const GLOBAL_FILES = new Set(['Emission_Factors.csv']);
+    const GLOBAL_FILES = new Set(['Emission_Factors.csv', 'Monthly_Activity_Wide.csv']);
     const allFiles = (await listCSVFiles()).filter(f => !GLOBAL_FILES.has(f));
 
     const results: { filename: string; addedRows: number }[] = [];

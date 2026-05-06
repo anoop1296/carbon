@@ -7,18 +7,7 @@ interface BudgetRow {
   parameter: string; value: string; unit?: string;
 }
 
-const COLORS = ['#990606','#c8920a','#3460c8','#1a8a50','#7830c8','#d01840','#0a8a90','#d06010','#2d6a4f','#b05010'];
-const PILL = [
-  'bg-[#fff0e8] text-[#b05010] border-[#f4b896]',
-  'bg-[#fffbec] text-[#8a6208] border-[#f5d78a]',
-  'bg-[#eef3ff] text-[#2040a0] border-[#b8ccf4]',
-  'bg-[#edfaf3] text-[#106030] border-[#96dbb4]',
-  'bg-[#f8eeff] text-[#5020a0] border-[#d0a8f4]',
-  'bg-[#ffecf0] text-[#a01030] border-[#f4a0b0]',
-  'bg-[#ecfcfc] text-[#066066] border-[#8cd8d8]',
-  'bg-[#fef4ec] text-[#904008] border-[#f0c090]',
-];
-
+const COLORS = ['#990606','#0ac839','#3460c8','#1a8a50','#7830c8','#d01840','#0a8a90','#d06010','#2d6a4f','#b05010'];
 function polarXY(cx: number, cy: number, r: number, deg: number) {
   const rad = ((deg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
@@ -103,21 +92,6 @@ function CarbonBudgetChart({ before, after }: { before: BudgetRow[] | null; afte
       </div>
 
       <div className="space-y-6 p-5 md:p-6">
-        {(bRows.length > 0 || aRows.length > 0) && (
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-            {[...bRows, ...aRows].map((row, i) => {
-              const val = Math.abs(parseFloat(row.value || '0'));
-              return (
-                <div key={i} className={`rounded-xl border px-4 py-3 ${PILL[i % PILL.length]}`}>
-                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">{row.parameter.length > 18 ? row.parameter.slice(0, 18) + '…' : row.parameter}</p>
-                  <p className="mt-2 text-xl font-black">{(val / 1000).toFixed(1)} t</p>
-                  <p className="mt-0.5 text-[10px] opacity-60">CO₂e / yr</p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         <div className="grid gap-4 xl:grid-cols-2">
           {[
             { title: 'Baseline', rows: bRows, total: bTotal, accent: '#d01840', border: 'border-[#f4a0b0]', bg: 'bg-[#ffecf0]', hdr: 'border-[#f4b0be]' },

@@ -25,6 +25,18 @@ function toLabel(col: string) {
   return col.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function fileLabel(filename: string) {
+  const base = filename.replace('.csv', '');
+  return base.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Returns { prefix: 'before'|'after'|null, label: string } for a column name
+function parseColPrefix(col: string): { prefix: 'before' | 'after' | null; label: string } {
+  if (col.startsWith('before_')) return { prefix: 'before', label: toLabel(col.slice(7)) };
+  if (col.startsWith('after_'))  return { prefix: 'after',  label: toLabel(col.slice(6)) };
+  return { prefix: null, label: toLabel(col) };
+}
+
 function normalizeError(msg: string) {
   if (/EROFS|read-only/i.test(msg)) return 'Firestore not configured correctly.';
   if (/Cloud Firestore API|PERMISSION_DENIED/i.test(msg)) return 'Firestore not enabled. Open Firebase Console and create the Firestore Database.';
@@ -678,7 +690,7 @@ export default function AdminPage() {
                     } ${!isMaster && villages.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
                   >
                     <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                    <span className="truncate">{f.replace('.csv', '')}</span>
+                    <span className="truncate">{fileLabel(f)}</span>
                     {isMaster && (
                       <span className="ml-auto rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold text-emerald-600">KEY</span>
                     )}
@@ -748,7 +760,7 @@ export default function AdminPage() {
                   >
                     <option value="">All files</option>
                     {masterFilesPresent.map(f => (
-                      <option key={f} value={f}>{f.replace('.csv', '')}</option>
+                      <option key={f} value={f}>{fileLabel(f)}</option>
                     ))}
                   </select>
                   <button
@@ -789,7 +801,7 @@ export default function AdminPage() {
                         {(() => {
                           const groups: { file: string; count: number }[] = [];
                           for (const col of filteredMasterCols) {
-                            const label = col.isIdentity ? 'Village ID' : col.file.replace('.csv', '');
+                            const label = col.isIdentity ? 'Village ID' : fileLabel(col.file);
                             if (groups.length === 0 || groups[groups.length - 1].file !== label) {
                               groups.push({ file: label, count: 1 });
                             } else {
@@ -809,16 +821,28 @@ export default function AdminPage() {
                       {/* Column name row */}
                       <tr className="bg-slate-800 text-white">
                         <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
-                        {filteredMasterCols.map((col, i) => (
-                          <th key={col.key}
-                            className={`whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide ${
-                              i === 0 || (i > 0 && filteredMasterCols[i - 1]?.file !== col.file && !col.isIdentity)
-                                ? 'border-l border-slate-600'
-                                : ''
-                            }`}>
-                            {toLabel(col.col)}
-                          </th>
-                        ))}
+                        {filteredMasterCols.map((col, i) => {
+                          const { prefix, label } = parseColPrefix(col.col);
+                          return (
+                            <th key={col.key}
+                              className={`whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                i === 0 || (i > 0 && filteredMasterCols[i - 1]?.file !== col.file && !col.isIdentity)
+                                  ? 'border-l border-slate-600'
+                                  : ''
+                              }`}>
+                              <div className="flex flex-col gap-0.5">
+                                {prefix && (
+                                  <span className={`text-[8px] font-black uppercase tracking-widest ${
+                                    prefix === 'before' ? 'text-amber-400' : 'text-emerald-400'
+                                  }`}>
+                                    {prefix}
+                                  </span>
+                                )}
+                                <span>{label}</span>
+                              </div>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>

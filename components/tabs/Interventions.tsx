@@ -5,11 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
-interface ReductionRow {
-  vlcode: string; village_name: string; sector: string; intervention: string;
-  activity_reduction: string; emission_factor: string; annual_co2_reduction_kg: string;
-  [key: string]: string;
-}
+type ReductionRow = Record<string, string>;
 
 const COLORS = [
   { bar: '#e2711d', pill: 'bg-[#fff0e8] text-[#b05010] border-[#f4b896]', card: 'border-[#f4b896] bg-[#fff8f4]', txt: '#b05010' },
@@ -22,13 +18,15 @@ const COLORS = [
   { bar: '#d06010', pill: 'bg-[#fef4ec] text-[#904008] border-[#f0c090]', card: 'border-[#f0c090] bg-[#fefaf4]', txt: '#904008' },
 ];
 
+const IDENTITY = new Set(['vlcode', 'village_name', 'sector', 'intervention', 'column']);
+
 function toNum(v: string) { const n = parseFloat(v || '0'); return isFinite(n) ? n : 0; }
 function trunc(s: string, n = 18) { return s.length > n ? s.slice(0, n) + '…' : s; }
-const KNOWN = new Set(['vlcode','village_name','sector','intervention','activity_reduction','emission_factor','annual_co2_reduction_kg']);
+function toLabel(k: string) { return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 
 function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
-  const [narrow, setNarrow]     = useState(false);
-  const [selSector, setSector]  = useState<string | null>(null);
+  const [narrow, setNarrow]    = useState(false);
+  const [selSector, setSector] = useState<string | null>(null);
 
   useEffect(() => {
     const fn = () => setNarrow(window.innerWidth < 640);
@@ -47,13 +45,14 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
     <div className="rounded-2xl border border-[#e4e2dd] bg-white p-12 text-center text-sm text-[#6b6860]">No intervention data</div>
   );
 
-  const total    = items.reduce((s, r) => s + toNum(r.annual_co2_reduction_kg) / 1000, 0);
+  const co2Key   = 'annual_co2_reduction_kg';
+  const total    = items.reduce((s, r) => s + toNum(r[co2Key]) / 1000, 0);
   const sectors  = Array.from(new Set(items.map(r => r.sector))).filter(Boolean);
   const filtered = selSector ? items.filter(r => r.sector === selSector) : items;
 
   const plotData = [{
     x: filtered.map(r => trunc(r.intervention || 'Unknown', narrow ? 10 : 16)),
-    y: filtered.map(r => toNum(r.annual_co2_reduction_kg) / 1000),
+    y: filtered.map(r => toNum(r[co2Key]) / 1000),
     type: 'bar', name: 'CO₂ Reduction',
     marker: {
       color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar),
@@ -114,7 +113,7 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
           <div className="space-y-2">
             {filtered.map((r, i) => {
               const c      = COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length];
-              const extras = Object.entries(r).filter(([k]) => !KNOWN.has(k) && r[k]?.trim());
+              const extras = Object.entries(r).filter(([k]) => !IDENTITY.has(k) && k !== co2Key && r[k]?.trim());
               return (
                 <div key={i} className={`overflow-hidden rounded-xl border p-4 ${c.card}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -123,15 +122,14 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
                       <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${c.pill}`}>{r.sector}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {[
-                        { l: 'CO₂ Saved', v: `${(toNum(r.annual_co2_reduction_kg) / 1000).toFixed(3)} t` },
-                        { l: 'Activity Δ', v: toNum(r.activity_reduction).toFixed(2) },
-                        { l: 'EF',         v: toNum(r.emission_factor).toFixed(4) },
-                        ...extras.map(([k, v]) => ({ l: k.replace(/_/g,' '), v })),
-                      ].map(card => (
-                        <div key={card.l} className="rounded-lg border border-white bg-white px-3 py-2">
-                          <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">{card.l}</p>
-                          <p className="mt-0.5 text-sm font-black" style={{ color: c.txt }}>{card.v}</p>
+                      <div className="rounded-lg border border-white bg-white px-3 py-2">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">CO₂ Saved</p>
+                        <p className="mt-0.5 text-sm font-black" style={{ color: c.txt }}>{(toNum(r[co2Key]) / 1000).toFixed(3)} t</p>
+                      </div>
+                      {extras.map(([k, v]) => (
+                        <div key={k} className="rounded-lg border border-white bg-white px-3 py-2">
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">{toLabel(k)}</p>
+                          <p className="mt-0.5 text-sm font-black" style={{ color: c.txt }}>{v}</p>
                         </div>
                       ))}
                     </div>

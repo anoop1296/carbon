@@ -1,7 +1,5 @@
-// app/api/sequestration/route.ts
-// Fully dynamic: first two columns = pk + name.
-// Before: cols ending _area_ha / _annual_co2_sequestered_kg → source name extracted.
-// After:  cols ending _seq_kg → type + intervention extracted from prefix.
+// Reads sequestration.csv — columns prefixed before_ / after_ are split into two groups.
+// Everything is fully dynamic: no hardcoded field names beyond the prefix convention.
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { readCSV } from '@/lib/csvParser';
@@ -11,70 +9,39 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const pkFilter = searchParams.get('vlcode') || '';
 
-    const [beforeCsv, afterCsv] = await Promise.all([
-      readCSV('Carbon_Sequestration_Before_Wide.csv'),
-      readCSV('Carbon_Sequestration_After_Wide.csv'),
-    ]);
+    const { headers, rows } = await readCSV('sequestration.csv');
+    const pkCol   = headers[0] ?? 'vlcode';
+    const nameCol = headers[1] ?? 'village_name';
+    const identity = new Set([pkCol, nameCol]);
 
-    // ── BEFORE ──────────────────────────────────────────────────────────────
-    const bPkCol   = beforeCsv.headers[0] ?? 'vlcode';
-    const bNameCol = beforeCsv.headers[1] ?? 'village_name';
-    const bIdentity = new Set([bPkCol, bNameCol]);
-
-    const beforeFiltered = pkFilter
-      ? beforeCsv.rows.filter(r => r[bPkCol] === pkFilter)
-      : beforeCsv.rows;
+    const filtered = pkFilter ? rows.filter(r => r[pkCol] === pkFilter) : rows;
 
     const before: Record<string, string>[] = [];
-    for (const row of beforeFiltered) {
-      const sources = new Set<string>();
-      for (const col of Object.keys(row)) {
-        if (bIdentity.has(col)) continue;
-        const areaMatch = col.match(/^(.+)_area_ha$/);
-        const co2Match  = col.match(/^(.+)_annual_co2_sequestered_kg$/);
-        if (areaMatch) sources.add(areaMatch[1]);
-        if (co2Match)  sources.add(co2Match[1]);
-      }
-      for (const src of Array.from(sources)) {
-        before.push({
-          [bPkCol]:                  row[bPkCol],
-          [bNameCol]:                row[bNameCol],
-          source:                    src,
-          area_ha:                   row[`${src}_area_ha`]                    || '0',
-          annual_co2_sequestered_kg: row[`${src}_annual_co2_sequestered_kg`]  || '0',
-        });
-      }
-    }
+    const after:  Record<string, string>[] = [];
 
-    // ── AFTER ────────────────────────────────────────────────────────────────
-    const aPkCol   = afterCsv.headers[0] ?? 'vlcode';
-    const aNameCol = afterCsv.headers[1] ?? 'village_name';
-    const aIdentity = new Set([aPkCol, aNameCol]);
+    for (const row of filtered) {
+      const bEntry: Record<string, string> = { [pkCol]: row[pkCol], [nameCol]: row[nameCol] };
+      const aEntry: Record<string, string> = { [pkCol]: row[pkCol], [nameCol]: row[nameCol] };
+      let hasBefore = false;
+      let hasAfter  = false;
 
-    const afterFiltered = pkFilter
-      ? afterCsv.rows.filter(r => r[aPkCol] === pkFilter)
-      : afterCsv.rows;
-
-    const after: Record<string, string>[] = [];
-    for (const row of afterFiltered) {
-      for (const [col, val] of Object.entries(row)) {
-        if (aIdentity.has(col)) continue;
-        const seqMatch = col.match(/^(.+)_seq_kg$/i);
-        if (!seqMatch) continue;
-        const body = seqMatch[1];
-        const idx  = body.indexOf('_');
-        const type         = idx !== -1 ? body.slice(0, idx) : body;
-        const intervention = idx !== -1 ? body.slice(idx + 1).replace(/_/g, ' ').trim() : body;
-        after.push({
-          [aPkCol]:                    row[aPkCol],
-          [aNameCol]:                  row[aNameCol],
-          type,
-          intervention,
-          area_added_ha:               row[`${col}_area_ha`]         || '0',
-          sequestration_factor:        row[`${col}_factor_kg_ha_yr`] || '0',
-          annual_co2_sequestration_kg: val || '0',
-        });
+      for (const col of headers) {
+        if (identity.has(col)) continue;
+        if (col.startsWith('before_')) {
+          bEntry[col.slice(7)] = row[col] || '';
+          hasBefore = true;
+        } else if (col.startsWith('after_')) {
+          aEntry[col.slice(6)] = row[col] || '';
+          hasAfter = true;
+        } else {
+          // untagged columns go to before
+          bEntry[col] = row[col] || '';
+          hasBefore = true;
+        }
       }
+
+      if (hasBefore) before.push(bEntry);
+      if (hasAfter)  after.push(aEntry);
     }
 
     return NextResponse.json({ success: true, before, after });

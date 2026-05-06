@@ -11,7 +11,7 @@ import CarbonBudget                  from '@/components/tabs/CarbonBudget';
 import Scenarios                     from '@/components/tabs/Scenarios';
 import Activity                      from '@/components/tabs/Activity';
 
-type Tab = 'overview' | 'emissions' | 'sequestration' | 'interventions' | 'budget' | 'scenario' | 'activity';
+type Tab = 'overview' | 'emissions' | 'sequestration' | 'interventions' | 'budget' | 'scenario';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview',      label: 'Overview',     icon: 'M' },
@@ -20,7 +20,6 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'interventions', label: 'Interventions', icon: 'I' },
   { id: 'budget',        label: 'Carbon Budget', icon: 'B' },
   { id: 'scenario',      label: 'Scenarios',     icon: 'P' },
-  { id: 'activity',      label: 'Activity',      icon: 'A' },
 ];
 
 function villageName(v: VillageRow) { return Object.values(v)[1] || Object.values(v)[0] || '—'; }
@@ -238,13 +237,17 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="mx-auto max-w-7xl space-y-5">
-              {activeTab === 'overview'      && <Overview      village={selected} />}
+              {activeTab === 'overview'      && (
+                <>
+                  <Overview village={selected} />
+                  <Activity vlcode={vlcode} />
+                </>
+              )}
               {activeTab === 'emissions'     && <Emissions     vlcode={vlcode} />}
               {activeTab === 'sequestration' && <Sequestration vlcode={vlcode} />}
               {activeTab === 'interventions' && <Interventions vlcode={vlcode} />}
               {activeTab === 'budget'        && <CarbonBudget  vlcode={vlcode} />}
               {activeTab === 'scenario'      && <Scenarios     vlcode={vlcode} />}
-              {activeTab === 'activity'      && <Activity      vlcode={vlcode} />}
             </div>
           )}
         </div>

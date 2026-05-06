@@ -5,7 +5,7 @@ import { listCSVFiles, readCSV, stringifyCSV } from '@/lib/csvParser';
 export const dynamic = 'force-dynamic';
 
 // Files that are global (not per-village) — excluded from the master template
-const GLOBAL_FILES = new Set(['Emission_Factors.csv']);
+const GLOBAL_FILES = new Set(['Emission_Factors.csv', 'Monthly_Activity_Wide.csv']);
 
 export async function GET() {
   try {
@@ -29,7 +29,6 @@ export async function GET() {
     const masterCsv = csvData.find(d => d?.filename === 'Village.csv');
     const pkCol   = masterCsv?.headers[0] ?? 'vlcode';
     const nameCol = masterCsv?.headers[1] ?? 'village_name';
-    const IDENTITY = new Set([pkCol, nameCol]);
 
     // Build flat header list: identity first, then all unique non-identity cols from each file
     const headers: string[] = [pkCol, nameCol];
