@@ -1,11 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-
 import { getFirebaseAdminDb, isFirebaseAdminConfigured } from '@/lib/firebaseAdmin';
 
 export type CsvRow = Record<string, string>;
 
-export const SEED_DATA_DIR = path.join(process.cwd(), 'csvSeed');
 const CSV_COLLECTION = 'csvFiles';
 
 // Write-through cache: after every write we store the result here so the
@@ -27,10 +23,6 @@ function normalizeFilename(filename: string): string {
   }
 
   return trimmed;
-}
-
-function resolveSeedCSVPath(filename: string): string {
-  return path.join(SEED_DATA_DIR, normalizeFilename(filename));
 }
 
 function ensureFirestoreAvailable() {
@@ -178,60 +170,6 @@ function normalizeStoredContent(content: string) {
   return normalized ? `${normalized.replace(/\n+$/, '')}\n` : '';
 }
 
-function listSeedCSVFiles(): string[] {
-  if (!fs.existsSync(SEED_DATA_DIR)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(SEED_DATA_DIR)
-    .filter((entry) => entry.toLowerCase().endsWith('.csv'))
-    .sort((a, b) => a.localeCompare(b));
-}
-
-async function seedFirestoreCsv(filename: string) {
-  const safeName = normalizeFilename(filename);
-  const seedPath = resolveSeedCSVPath(safeName);
-
-  if (!fs.existsSync(seedPath)) {
-    throw new Error(`Dataset not found in Firestore: ${safeName}`);
-  }
-
-  const content = normalizeStoredContent(fs.readFileSync(seedPath, 'utf-8'));
-  const parsed = parseCsvFile(safeName, content);
-
-  await getCsvCollection().doc(safeName).set({
-    filename: safeName,
-    content,
-    headers: parsed.headers,
-    rows: parsed.rows,
-    seededFrom: 'data/csvSeed',
-    updatedAt: Date.now(),
-  });
-
-  return parsed;
-}
-
-async function bootstrapFirestoreFromSeedData() {
-  const seedFiles = listSeedCSVFiles();
-  if (!seedFiles.length) {
-    return;
-  }
-
-  const collection = getCsvCollection();
-  const snapshots = await Promise.all(seedFiles.map((filename) => collection.doc(filename).get()));
-
-  await Promise.all(
-    seedFiles.map(async (filename, index) => {
-      if (snapshots[index]?.exists) {
-        return;
-      }
-
-      await seedFirestoreCsv(filename);
-    })
-  );
-}
-
 async function readFirestoreCSV(filename: string) {
   const safeName = normalizeFilename(filename);
 
@@ -243,7 +181,7 @@ async function readFirestoreCSV(filename: string) {
   const snapshot = await getCsvCollection().doc(safeName).get();
 
   if (!snapshot.exists) {
-    return seedFirestoreCsv(safeName);
+    throw new Error(`Dataset "${safeName}" not found in Firestore. Run the seed script to upload it.`);
   }
 
   const content = snapshot.get('content');
@@ -267,7 +205,6 @@ async function readFirestoreCSV(filename: string) {
 }
 
 async function listFirestoreCSVFiles(): Promise<string[]> {
-  await bootstrapFirestoreFromSeedData();
   const snapshot = await getCsvCollection().get();
   return snapshot.docs
     .map((doc) => doc.id)
@@ -307,8 +244,7 @@ export async function readCSV(filename: string): Promise<{ filename: string; hea
 
 export async function listCSVFiles(): Promise<string[]> {
   ensureFirestoreAvailable();
-  const [firestoreFiles, seedFiles] = await Promise.all([listFirestoreCSVFiles(), Promise.resolve(listSeedCSVFiles())]);
-  return Array.from(new Set([...seedFiles, ...firestoreFiles])).sort((a, b) => a.localeCompare(b));
+  return listFirestoreCSVFiles();
 }
 
 function collectHeaders(existingHeaders: string[], row: Record<string, unknown>): string[] {
