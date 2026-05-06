@@ -63,7 +63,7 @@ function EditCell({
 
   if (locked) {
     return (
-      <span className="block max-w-[140px] truncate rounded bg-sky-50 px-2 py-1 text-xs text-sky-700">
+      <span className="block w-full max-w-full truncate rounded bg-sky-50 px-2 py-1 text-xs text-sky-700">
         {value || '—'}
       </span>
     );
@@ -90,7 +90,7 @@ function EditCell({
       type="button"
       onClick={() => setEditing(true)}
       title="Click to edit"
-      className="block max-w-[140px] truncate rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-900"
+      className="block w-full max-w-full truncate rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-900"
     >
       {value || <span className="text-slate-300">click to edit</span>}
     </button>
@@ -943,69 +943,121 @@ export default function AdminPage() {
                     Select a file from the sidebar.
                   </div>
                 ) : (
-                  <table className="min-w-full border-collapse text-left">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-slate-800 text-white">
-                        <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
-                        {visibleHeaders.map((h) => {
-                          const isProtected = h === VL_CODE || h === VL_NAME;
-                          return (
-                            <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
-                              <div className="flex items-center gap-1.5">
-                                <span>{toLabel(h)}</span>
-                                {!isProtected && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteColumn(h)}
-                                    title={`Delete column "${h}"`}
-                                    className="hidden rounded px-1 py-0.5 text-[9px] font-bold text-red-300 opacity-0 transition hover:bg-red-800 hover:text-red-100 group-hover:block group-hover:opacity-100"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-                            </th>
-                          );
-                        })}
-                        <th className="w-14 px-3 py-2.5 text-[10px] font-semibold text-slate-400">Del</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={visibleHeaders.length + 2} className="px-4 py-12 text-center text-sm text-slate-400">
-                            No rows yet — click "+ Row" to add one.
-                          </td>
+                  isMasterFile ? (
+                    <table className="min-w-full border-collapse text-left">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="bg-slate-800 text-white">
+                          <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
+                          {visibleHeaders.map((h) => {
+                            const isProtected = h === VL_CODE || h === VL_NAME;
+                            return (
+                              <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{toLabel(h)}</span>
+                                  {!isProtected && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteColumn(h)}
+                                      title={`Delete column "${h}"`}
+                                      className="hidden rounded px-1 py-0.5 text-[9px] font-bold text-red-300 opacity-0 transition hover:bg-red-800 hover:text-red-100 group-hover:block group-hover:opacity-100"
+                                    >
+                                      x
+                                    </button>
+                                  )}
+                                </div>
+                              </th>
+                            );
+                          })}
+                          <th className="w-14 px-3 py-2.5 text-[10px] font-semibold text-slate-400">Del</th>
                         </tr>
-                      ) : (
-                        visibleRows.map((row, visIdx) => {
-                          const realIdx = visibleRowIndices[visIdx];
-                          return (
-                            <tr key={`${activeFile}-${realIdx}`} className="border-b border-slate-100 hover:bg-slate-50">
-                              <td className="px-3 py-2 text-[11px] font-bold text-slate-400">{visIdx + 1}</td>
+                      </thead>
+                      <tbody>
+                        {visibleRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={visibleHeaders.length + 2} className="px-4 py-12 text-center text-sm text-slate-400">
+                              No rows yet - click "+ Row" to add one.
+                            </td>
+                          </tr>
+                        ) : (
+                          visibleRows.map((row, visIdx) => {
+                            const realIdx = visibleRowIndices[visIdx];
+                            return (
+                              <tr key={`${activeFile}-${realIdx}`} className="border-b border-slate-100 hover:bg-slate-50">
+                                <td className="px-3 py-2 text-[11px] font-bold text-slate-400">{visIdx + 1}</td>
+                                {visibleHeaders.map((h) => (
+                                  <td key={h} className="px-3 py-1.5">
+                                    <EditCell
+                                      value={row[h] || ''}
+                                      locked={false}
+                                      onChange={(val) => handleCellChange(realIdx, h, val)}
+                                    />
+                                  </td>
+                                ))}
+                                <td className="px-3 py-1.5">
+                                  <button
+                                    onClick={() => handleDeleteRow(realIdx)}
+                                    className="rounded px-2 py-1 text-[11px] font-semibold text-red-400 hover:bg-red-50 hover:text-red-600"
+                                  >
+                                    x
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  ) : visibleRows.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                      No rows yet - click "+ Row" to add one.
+                    </div>
+                  ) : (
+                    <div className="space-y-4 p-4">
+                      {visibleRows.map((row, visIdx) => {
+                        const realIdx = visibleRowIndices[visIdx];
+                        return (
+                          <section key={`${activeFile}-${realIdx}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                            <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-emerald-100 text-[11px] font-bold text-emerald-700">
+                                  {visIdx + 1}
+                                </span>
+                                <span className="truncate text-xs font-semibold text-slate-700">{activeFile}</span>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteRow(realIdx)}
+                                className="rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                            <div className="divide-y divide-slate-100">
                               {visibleHeaders.map((h) => (
-                                <td key={h} className="px-3 py-1.5">
+                                <div key={h} className="grid gap-2 px-4 py-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <span className="truncate text-[11px] font-semibold uppercase text-slate-500">{toLabel(h)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteColumn(h)}
+                                      title={`Delete column "${h}"`}
+                                      className="rounded px-1.5 py-0.5 text-[10px] font-bold text-red-300 hover:bg-red-50 hover:text-red-600"
+                                    >
+                                      x
+                                    </button>
+                                  </div>
                                   <EditCell
                                     value={row[h] || ''}
                                     locked={false}
                                     onChange={(val) => handleCellChange(realIdx, h, val)}
                                   />
-                                </td>
+                                </div>
                               ))}
-                              <td className="px-3 py-1.5">
-                                <button
-                                  onClick={() => handleDeleteRow(realIdx)}
-                                  className="rounded px-2 py-1 text-[11px] font-semibold text-red-400 hover:bg-red-50 hover:text-red-600"
-                                >
-                                  ✕
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                            </div>
+                          </section>
+                        );
+                      })}
+                    </div>
+                  )
                 )}
               </div>
             </>
