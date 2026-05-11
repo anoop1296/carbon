@@ -139,6 +139,7 @@ export default function AdminPage() {
   // add-column modal
   const [showAddCol, setShowAddCol] = useState(false);
   const [newColName, setNewColName] = useState('');
+  const [newColCategory, setNewColCategory] = useState<'before' | 'after' | null>(null);
 
   // csv upload (per-file)
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -154,6 +155,7 @@ export default function AdminPage() {
   const activeVillage = villages.find((v) => v[VL_CODE] === activeVlcode) || null;
   const isMasterFile = activeFile === MASTER_FILE;
   const isMasterView = activeFile === MASTER_VIEW_ID;
+  const needsCategory = activeFile === 'sequestration.csv' || activeFile === 'budget.csv';
 
   // ── toast helper ──────────────────────────────────────────────────────────
   function showToast(type: 'ok' | 'err', msg: string) {
@@ -387,8 +389,13 @@ export default function AdminPage() {
 
   // ── add column ────────────────────────────────────────────────────────────
   async function handleAddColumn() {
-    const col = newColName.trim().replace(/\s+/g, '_').toLowerCase();
-    if (!col) return;
+    const raw = newColName.trim().replace(/\s+/g, '_').toLowerCase();
+    if (!raw) return;
+    if (needsCategory && !newColCategory) {
+      showToast('err', 'Please choose a category (Existing or Added).');
+      return;
+    }
+    const col = needsCategory ? `${newColCategory}_${raw}` : raw;
     if (headers.includes(col)) { showToast('err', `Column "${col}" already exists.`); return; }
 
     setSaving(true);
@@ -403,6 +410,7 @@ export default function AdminPage() {
         setHeaders(d.headers);
       }
       setNewColName('');
+      setNewColCategory(null);
       setShowAddCol(false);
       showToast('ok', `Column "${col}" added.`);
     } catch (e) {
@@ -1111,21 +1119,60 @@ export default function AdminPage() {
             <p className="mt-1 text-xs text-slate-500">
               Column will be added to <span className="font-semibold">{activeFile}</span>. All existing rows will have an empty value for this column.
             </p>
+
+            {needsCategory && (
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-700">Category</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Pick where this column belongs.</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewColCategory('before')}
+                    className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
+                      newColCategory === 'before'
+                        ? 'border-amber-400 bg-amber-50 text-amber-800'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Existing
+                    <span className="mt-0.5 block text-[9px] font-normal text-slate-500">before_*</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewColCategory('after')}
+                    className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
+                      newColCategory === 'after'
+                        ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Added
+                    <span className="mt-0.5 block text-[9px] font-normal text-slate-500">after_*</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <input
               value={newColName}
               onChange={(e) => setNewColName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddColumn()}
               placeholder="e.g. solar_panels_count"
               autoFocus
-              className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-400 focus:bg-white"
+              disabled={needsCategory && !newColCategory}
+              className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-400 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             />
-            <p className="mt-1.5 text-[11px] text-slate-400">Use lowercase with underscores. Spaces will be converted automatically.</p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {needsCategory && newColCategory
+                ? <>Will be saved as <span className="font-mono font-semibold text-slate-600">{newColCategory}_{newColName.trim().replace(/\s+/g, '_').toLowerCase() || '…'}</span></>
+                : 'Use lowercase with underscores. Spaces will be converted automatically.'}
+            </p>
             <div className="mt-4 flex gap-3">
-              <button onClick={handleAddColumn} disabled={saving || !newColName.trim()}
+              <button onClick={handleAddColumn} disabled={saving || !newColName.trim() || (needsCategory && !newColCategory)}
                 className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
                 {saving ? 'Adding…' : 'Add Column'}
               </button>
-              <button onClick={() => { setShowAddCol(false); setNewColName(''); }}
+              <button onClick={() => { setShowAddCol(false); setNewColName(''); setNewColCategory(null); }}
                 className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
                 Cancel
               </button>

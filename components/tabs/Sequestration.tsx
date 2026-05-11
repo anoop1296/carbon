@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 type Row = Record<string, string>;
+type Attr = { key: string; label: string; value: number; raw: string };
 
 const AFTER_COLORS = [
   { bg: '#edfaf3', border: '#96dbb4', bar: '#1a8a50', text: '#106030', pill: 'bg-[#d4f4e4] text-[#106030] border-[#96dbb4]' },
@@ -17,57 +18,30 @@ const IDENTITY = new Set(['vlcode', 'village_name']);
 
 function toLabel(k: string) { return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function initials(s: string) { return s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3) || 'SEQ'; }
-// Heuristic: pick the numeric field most likely to represent CO2 value
-function co2Field(row: Row): string {
-  const keys = Object.keys(row).filter(k => !IDENTITY.has(k));
-  const co2   = keys.find(k => /co2|seq|carbon/i.test(k) && /kg/i.test(k));
-  const kg    = keys.find(k => /kg/i.test(k));
-  return co2 || kg || keys[keys.length - 1] || '';
-}
 
-function areaField(row: Row): string {
-  const keys = Object.keys(row).filter(k => !IDENTITY.has(k));
-  return keys.find(k => /area|ha/i.test(k)) || '';
-}
-
-// Pick the "name/label" field for a before row (source of sequestration)
-function labelField(row: Row): string {
-  const keys = Object.keys(row).filter(k => !IDENTITY.has(k));
-  const src  = keys.find(k => /source|name|type|label/i.test(k));
-  return src || keys[0] || '';
+// Flatten rows into per-attribute entries: each non-identity column becomes its own card.
+// Column name → label, cell value → numeric value.
+function flatten(rows: Row[]): Attr[] {
+  const out: Attr[] = [];
+  for (const row of rows) {
+    for (const [k, raw] of Object.entries(row)) {
+      if (IDENTITY.has(k)) continue;
+      const value = parseFloat(raw || '0') || 0;
+      if (!raw?.toString().trim()) continue;
+      out.push({ key: k, label: toLabel(k), value, raw });
+    }
+  }
+  return out;
 }
 
 function SequestrationChart({ before, after }: { before: Row[]; after: Row[] }) {
-  const bRows = before;
-  const aRows = after;
+  const bAttrs = flatten(before);
+  const aAttrs = flatten(after);
 
-  // Determine display fields dynamically per row
-  const bCo2Field   = bRows[0] ? co2Field(bRows[0])   : '';
-  const bAreaField  = bRows[0] ? areaField(bRows[0])  : '';
-  const bLabelField = bRows[0] ? labelField(bRows[0]) : '';
-  const aCo2Field   = aRows[0] ? co2Field(aRows[0])   : '';
-  const aAreaField  = aRows[0] ? areaField(aRows[0])  : '';
-
-  // For "after" label: pick first non-identity non-co2 non-area field as name
-  function afterLabel(row: Row): string {
-    const keys = Object.keys(row).filter(k => !IDENTITY.has(k) && k !== aCo2Field && k !== aAreaField);
-    return row[keys[0]] || row[aCo2Field] || '';
-  }
-
-  const bTotal = bRows.reduce((s, r) => s + (parseFloat(r[bCo2Field] || '0') || 0), 0);
-  const aTotal = aRows.reduce((s, r) => s + (parseFloat(r[aCo2Field] || '0') || 0), 0);
-  const bMax   = Math.max(...bRows.map(r => parseFloat(r[bCo2Field] || '0') || 0), 1);
-  const aMax   = Math.max(...aRows.map(r => parseFloat(r[aCo2Field] || '0') || 0), 1);
-
-  // Extra fields beyond the main ones
-  function bExtras(row: Row) {
-    const main = new Set([bCo2Field, bAreaField, bLabelField]);
-    return Object.entries(row).filter(([k, v]) => !IDENTITY.has(k) && !main.has(k) && v?.trim());
-  }
-  function aExtras(row: Row) {
-    const main = new Set([aCo2Field, aAreaField]);
-    return Object.entries(row).filter(([k, v]) => !IDENTITY.has(k) && !main.has(k) && v?.trim());
-  }
+  const bTotal = bAttrs.reduce((s, a) => s + a.value, 0);
+  const aTotal = aAttrs.reduce((s, a) => s + a.value, 0);
+  const bMax   = Math.max(...bAttrs.map(a => a.value), 1);
+  const aMax   = Math.max(...aAttrs.map(a => a.value), 1);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
@@ -99,26 +73,20 @@ function SequestrationChart({ before, after }: { before: Row[]; after: Row[] }) 
             <p className="text-xl font-black text-[#c8920a]">{(bTotal / 1000).toFixed(1)} t</p>
           </div>
           <div className="space-y-2 p-3">
-            {bRows.length === 0
+            {bAttrs.length === 0
               ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
-              : bRows.map((r, i) => {
-                  const v   = parseFloat(r[bCo2Field] || '0') || 0;
-                  const sh  = bTotal > 0 ? (v / bTotal) * 100 : 0;
-                  const rel = (v / bMax) * 100;
-                  const lbl = r[bLabelField] || `Row ${i + 1}`;
-                  const area = r[bAreaField];
+              : bAttrs.map((a, i) => {
+                  const sh  = bTotal > 0 ? (a.value / bTotal) * 100 : 0;
+                  const rel = (a.value / bMax) * 100;
                   return (
-                    <div key={i} className="rounded-lg border border-white bg-white px-3 py-3">
+                    <div key={a.key + i} className="rounded-lg border border-white bg-white px-3 py-3">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-black text-[#1a1a1a]">{lbl}</p>
-                          {area && <p className="text-[10px] text-[#6b6860]">{Number(area).toFixed(1)} ha</p>}
-                          {bExtras(r).map(([k, v]) => (
-                            <span key={k} className="mr-2 text-[9px] text-[#6b6860]">{toLabel(k)}: {v}</span>
-                          ))}
+                          <p className="text-sm font-black text-[#1a1a1a]">{a.label}</p>
+                          <p className="text-[10px] text-[#6b6860]">{a.raw}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-black text-[#c8920a]">{(v / 1000).toFixed(2)} t</p>
+                          <p className="text-sm font-black text-[#c8920a]">{(a.value / 1000).toFixed(2)} t</p>
                           <p className="text-[10px] text-[#6b6860]">{sh.toFixed(1)}%</p>
                         </div>
                       </div>
@@ -140,30 +108,24 @@ function SequestrationChart({ before, after }: { before: Row[]; after: Row[] }) 
             <p className="text-xl font-black text-[#1a8a50]">{(aTotal / 1000).toFixed(1)} t</p>
           </div>
           <div className="space-y-2 p-3">
-            {aRows.length === 0
+            {aAttrs.length === 0
               ? <p className="py-6 text-center text-xs text-[#6b6860]">No data</p>
-              : aRows.map((r, i) => {
-                  const v   = parseFloat(r[aCo2Field] || '0') || 0;
-                  const sh  = aTotal > 0 ? (v / aTotal) * 100 : 0;
-                  const rel = (v / aMax) * 100;
+              : aAttrs.map((a, i) => {
+                  const sh  = aTotal > 0 ? (a.value / aTotal) * 100 : 0;
+                  const rel = (a.value / aMax) * 100;
                   const c   = AFTER_COLORS[i % AFTER_COLORS.length];
-                  const lbl = afterLabel(r) || `Row ${i + 1}`;
                   return (
-                    <div key={i} className="rounded-lg border bg-white px-3 py-3" style={{ borderColor: c.border }}>
+                    <div key={a.key + i} className="rounded-lg border bg-white px-3 py-3" style={{ borderColor: c.border }}>
                       <div className="flex items-start gap-2">
                         <span className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest ${c.pill}`}>
-                          {initials(lbl)}
+                          {initials(a.label)}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-black text-[#1a1a1a]">{lbl}</p>
-                          <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-[#6b6860]">
-                            {aExtras(r).map(([k, v]) => (
-                              <span key={k}>{toLabel(k)}: {v}</span>
-                            ))}
-                          </div>
+                          <p className="truncate text-sm font-black text-[#1a1a1a]">{a.label}</p>
+                          <p className="mt-0.5 text-[10px] text-[#6b6860]">{a.raw}</p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-black" style={{ color: c.text }}>{(v / 1000).toFixed(2)} t</p>
+                          <p className="text-sm font-black" style={{ color: c.text }}>{(a.value / 1000).toFixed(2)} t</p>
                           <p className="text-[10px] text-[#6b6860]">{sh.toFixed(1)}%</p>
                         </div>
                       </div>
