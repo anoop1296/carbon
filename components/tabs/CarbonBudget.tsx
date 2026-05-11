@@ -28,8 +28,15 @@ const rowValue = (rows: BudgetRow[], parameter: string) => {
 };
 const isBeforePie = (r: BudgetRow) => { const p = norm(r.parameter); return p === 'net_emission' || p === 'total_sequestration'; };
 const isAfterPie  = (r: BudgetRow) => { const p = norm(r.parameter); return p === 'total_emission_reduction' || p === 'total_sequestration_increase' || p === 'new_net_emission'; };
+const PARAM_COLORS: Record<string, string> = {
+  net_emission: '#990606',
+  total_sequestration: '#0ac839',
+  new_net_emission: '#990606',
+  total_emission_reduction: '#3460c8',
+  total_sequestration_increase: '#0ac839',
+};
 const toSlices = (rows: BudgetRow[]): Slice[] =>
-  rows.length ? rows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: COLORS[i % COLORS.length], i }))
+  rows.length ? rows.map((r, i) => ({ label: r.parameter, value: Math.abs(parseFloat(r.value || '0')), color: PARAM_COLORS[norm(r.parameter)] || COLORS[i % COLORS.length], i }))
               : [{ label: 'No Data', value: 1, color: '#e4e2dd', i: 0 }];
 
 function Donut({ slices, label }: { slices: Slice[]; label: string }) {
@@ -107,9 +114,8 @@ function CarbonBudgetChart({ before, after }: { before: BudgetRow[] | null; afte
             { title: 'After Intervention', rows: aRows, total: aTotal, accent: '#1a8a50', border: 'border-[#96dbb4]', bg: 'bg-[#edfaf3]', hdr: 'border-[#aadfc0]' },
           ].map(({ title, rows, total: tot, accent, border, bg, hdr }) => (
             <div key={title} className={`overflow-hidden rounded-xl border ${border} ${bg}`}>
-              <div className={`flex items-center justify-between border-b px-4 py-3 ${hdr}`}>
+              <div className={`flex items-center border-b px-4 py-3 ${hdr}`}>
                 <span className="text-xs font-black uppercase tracking-widest" style={{ color: accent }}>{title}</span>
-                <span className="text-lg font-black" style={{ color: accent }}>{(tot / 1000).toFixed(1)} t</span>
               </div>
               <div className="space-y-1.5 p-3">
                 {rows.length === 0

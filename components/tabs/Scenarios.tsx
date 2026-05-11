@@ -95,7 +95,13 @@ function ScenarioChart({ rows }: { rows: ScenarioRow[] }) {
         </div>
         <div className="min-h-[320px] rounded-xl border border-[#e4e2dd] bg-white p-3 md:min-h-[380px]">
           <Plot data={plotData as never[]} layout={layout as never}
-            config={{ responsive: true, displayModeBar: false }}
+            config={{
+              responsive: true,
+              displayModeBar: true,
+              displaylogo: false,
+              modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+              toImageButtonOptions: { format: 'png', filename: 'scenarios', scale: 2 },
+            }}
             className="h-full w-full" useResizeHandler />
         </div>
       </div>

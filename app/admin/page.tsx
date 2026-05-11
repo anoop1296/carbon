@@ -652,11 +652,6 @@ export default function AdminPage() {
             </option>
           ))}
         </select>
-        {activeVillage && (
-          <span className="hidden text-[11px] text-slate-400 sm:block">
-            {Object.entries(activeVillage).map(([k, v]) => `${toLabel(k)}: ${v || '—'}`).join(' · ')}
-          </span>
-        )}
       </div>
 
       {/* ── BODY ── */}

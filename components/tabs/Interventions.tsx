@@ -104,7 +104,13 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
 
         <div className="min-h-[280px] rounded-xl border border-[#e4e2dd] bg-white p-2 md:min-h-[340px]">
           <Plot data={plotData as never[]} layout={layout as never}
-            config={{ responsive: true, displayModeBar: false }}
+            config={{
+              responsive: true,
+              displayModeBar: true,
+              displaylogo: false,
+              modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+              toImageButtonOptions: { format: 'png', filename: 'interventions', scale: 2 },
+            }}
             className="h-full w-full" useResizeHandler />
         </div>
 
@@ -117,11 +123,11 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
               return (
                 <div key={i} className={`overflow-hidden rounded-xl border p-4 ${c.card}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-[#1a1a1a]">{r.intervention || '—'}</p>
+                    <div className="min-w-0 md:flex-1">
+                      <p className="break-words text-sm font-black text-[#1a1a1a]">{r.intervention || '—'}</p>
                       <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${c.pill}`}>{r.sector}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <div className="grid w-full shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 md:w-auto md:auto-cols-[minmax(120px,1fr)] md:grid-flow-col md:grid-cols-none">
                       <div className="rounded-lg border border-white bg-white px-3 py-2">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">CO₂ Saved</p>
                         <p className="mt-0.5 text-sm font-black" style={{ color: c.txt }}>{(toNum(r[co2Key]) / 1000).toFixed(3)} t</p>
