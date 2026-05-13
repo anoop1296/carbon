@@ -15,17 +15,23 @@ export async function GET(req: Request) {
     const filtered = pkFilter ? rows.filter(r => r[pkCol] === pkFilter) : rows;
     const data: Record<string, string>[] = [];
 
+    const titleCase = (s: string) => s.replace(/\b[a-z]/g, c => c.toUpperCase());
+
     for (const row of filtered) {
       for (const [col, val] of Object.entries(row)) {
         if (identity.has(col)) continue;
-        const idx = col.indexOf('_');
-        if (idx === -1) continue;
+        // Columns without an underscore still flow through — they go under a
+        // "General" sector so admin-added simple names (e.g. "gaurav") still
+        // surface on the dashboard.
+        const idx          = col.indexOf('_');
+        const sector       = titleCase(idx > 0 ? col.slice(0, idx) : 'General');
+        const activity     = titleCase(idx > 0 ? col.slice(idx + 1).replace(/_/g, ' ') : col.replace(/_/g, ' '));
         data.push({
           [pkCol]:       row[pkCol],
           [nameCol]:     row[nameCol],
-          sector:        col.slice(0, idx),
-          activity:      col.slice(idx + 1),
-          annual_co2_kg: val,
+          sector,
+          activity,
+          annual_co2_kg: val || '0',
         });
       }
     }

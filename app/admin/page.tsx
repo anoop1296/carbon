@@ -271,6 +271,57 @@ export default function AdminPage() {
     });
   };
 
+  // Per-village hidden-column tracking. When a column is added/exposed for
+  // village A, we mark that column "hidden" for all OTHER villages so they
+  // don't see a phantom field in their card just because the CSV header
+  // structurally contains it. A hidden column comes back automatically the
+  // moment that village actually gets a non-empty value or explicitly re-adds
+  // the column via "+ Column".
+  const HIDDEN_KEY_STORAGE = 'admin:hiddenCols:v1';
+  const [hiddenMap, setHiddenMap] = useState<Record<string, string[]>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem(HIDDEN_KEY_STORAGE);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try { window.localStorage.setItem(HIDDEN_KEY_STORAGE, JSON.stringify(hiddenMap)); } catch { /* ignore */ }
+  }, [hiddenMap]);
+  const hiddenCols = new Set(hiddenMap[pendingKey] || []);
+  // Mark `col` hidden for every village in this file EXCEPT the active one.
+  const markColumnHiddenForOtherVillages = (col: string) => {
+    setHiddenMap(prev => {
+      const next = { ...prev };
+      for (const v of villages) {
+        const otherCode = v[VL_CODE];
+        if (!otherCode || otherCode === activeVlcode) continue;
+        const key = `${activeFile}::${otherCode}`;
+        const existing = next[key] || [];
+        if (existing.includes(col)) continue;
+        next[key] = [...existing, col];
+      }
+      // Make sure the active village does NOT hide this column.
+      const myKey = `${activeFile}::${activeVlcode}`;
+      const myList = next[myKey];
+      if (myList && myList.includes(col)) {
+        next[myKey] = myList.filter(c => c !== col);
+      }
+      return next;
+    });
+  };
+  // When a column genuinely gets data for this village, unhide it here.
+  const unhideColumnForActiveVillage = (col: string) => {
+    setHiddenMap(prev => {
+      const existing = prev[pendingKey];
+      if (!existing || !existing.includes(col)) return prev;
+      return { ...prev, [pendingKey]: existing.filter(c => c !== col) };
+    });
+  };
+
   // csv upload (per-file)
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -479,6 +530,9 @@ export default function AdminPage() {
   async function handleCellChange(rowIndex: number, col: string, val: string) {
     if (val === (rows[rowIndex]?.[col] || '')) return; // no-op edits skip the network
     setRows(prev => prev.map((r, i) => i === rowIndex ? { ...r, [col]: val } : r));
+    // Once this village actually fills a value, the column is no longer a
+    // phantom for them — let it remain visible on its own merit.
+    if (val.trim() !== '') unhideColumnForActiveVillage(col);
     setSaving(true);
     try {
       const d = await apiPut(activeFile, rowIndex, { [col]: val });
@@ -570,6 +624,7 @@ export default function AdminPage() {
         // each village still keeps its own per-row value.
         if (activeVillageRowIndex >= 0) {
           addPendingCol(col);
+          unhideColumnForActiveVillage(col);
           setNewColName('');
           setNewColCategory(null);
           setShowAddCol(false);
@@ -590,6 +645,7 @@ export default function AdminPage() {
           // Global file (no village dimension) or master file: column exists,
           // just expose it to the user — no structural change needed.
           addPendingCol(col);
+          unhideColumnForActiveVillage(col);
           setNewColName('');
           setNewColCategory(null);
           setShowAddCol(false);
@@ -625,6 +681,11 @@ export default function AdminPage() {
         setHeaders(d.headers);
       }
       addPendingCol(col);
+      unhideColumnForActiveVillage(col);
+      // New column was just added by THIS village — keep other villages from
+      // seeing a phantom empty field by default. They'll only see it again if
+      // they explicitly add the same column name themselves.
+      if (!isMasterFile && isVillageScoped) markColumnHiddenForOtherVillages(col);
       setNewColName('');
       setNewColCategory(null);
       setShowAddCol(false);
@@ -713,12 +774,38 @@ export default function AdminPage() {
     }
   }
 
+  // ── hide a column only for the active village ─────────────────────────────
+  // Triggered when a user blanks out a label in the card view. We intentionally
+  // do NOT delete the column from the CSV — other villages may still hold
+  // data in this column. Instead we clear this village's cell value and add
+  // the column to the active village's hidden set so it disappears from this
+  // card without touching anyone else.
+  async function handleHideColumnForActiveVillage(rowIndex: number, col: string) {
+    if (protectedHeaders.has(col)) {
+      showToast('err', 'Cannot hide the primary key or name column.'); return;
+    }
+    const currentVal = (rows[rowIndex]?.[col] || '').trim();
+    // Update local state first so the field disappears immediately even if the
+    // save round-trip is slow.
+    removePendingCol(col);
+    setHiddenMap(prev => {
+      const existing = prev[pendingKey] || [];
+      if (existing.includes(col)) return prev;
+      return { ...prev, [pendingKey]: [...existing, col] };
+    });
+    if (currentVal !== '') {
+      // Persist the cell clear so this village no longer contributes a value.
+      await handleCellChange(rowIndex, col, '');
+    }
+    showToast('ok', `"${col}" hidden for this village — other villages keep their data.`);
+  }
+
   // ── delete column ────────────────────────────────────────────────────────
   async function handleDeleteColumn(col: string) {
     if (protectedHeaders.has(col)) {
       showToast('err', `Cannot delete primary key or name column.`); return;
     }
-    const msg = `⚠️ DELETE COLUMN — NOT just this cell.\n\nColumn: "${col}"\nFile:   "${activeFile}"\n\nThis removes "${col}" from ALL villages permanently.\nIf you only want to clear this village's value, click the value and delete its text instead.\n\nProceed?`;
+    const msg = `⚠️ DELETE COLUMN — NOT just this cell.\n\nColumn: "${col}"\nFile:   "${activeFile}"\n\nThis removes "${col}" from ALL villages permanently.\nIf you only want to hide it for the current village, blank out its label instead.\n\nProceed?`;
     if (!confirm(msg)) return;
     setSaving(true);
     try {
@@ -1147,7 +1234,10 @@ export default function AdminPage() {
                       const shownColCount = isMasterFile
                         ? visibleHeaders.length
                         : visibleRows.reduce((max, row) => {
-                            const c = visibleHeaders.filter(h => (row[h] || '').trim() !== '' || pendingCols.has(h)).length;
+                            const c = visibleHeaders.filter(h => {
+                              if (hiddenCols.has(h) && (row[h] || '').trim() === '') return false;
+                              return (row[h] || '').trim() !== '' || pendingCols.has(h);
+                            }).length;
                             return Math.max(max, c);
                           }, 0);
                       return `${visibleRows.length} row${visibleRows.length !== 1 ? 's' : ''} · ${shownColCount} col${shownColCount !== 1 ? 's' : ''}`;
@@ -1297,12 +1387,16 @@ export default function AdminPage() {
                     <div className="space-y-4 p-4">
                       {visibleRows.map((row, visIdx) => {
                         const realIdx = visibleRowIndices[visIdx];
-                        // Per-village filter: show only fields this village has a
-                        // value for, plus any columns the user just added in this
-                        // session (so they have somewhere to type the value).
-                        const cardHeaders = visibleHeaders.filter(h =>
-                          (row[h] || '').trim() !== '' || pendingCols.has(h)
-                        );
+                        // Per-village filter: show only fields this village
+                        //   • has a non-empty value for, OR
+                        //   • the user just added in this session (pending).
+                        // Exclude any column explicitly marked hidden for this
+                        // village (so phantom headers added by another village
+                        // don't leak into this card).
+                        const cardHeaders = visibleHeaders.filter(h => {
+                          if (hiddenCols.has(h) && (row[h] || '').trim() === '') return false;
+                          return (row[h] || '').trim() !== '' || pendingCols.has(h);
+                        });
                         return (
                           <section key={`${activeFile}-${realIdx}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                             <div className="divide-y divide-slate-100">
@@ -1319,7 +1413,7 @@ export default function AdminPage() {
                                       display={toLabel(h)}
                                       disabled={protectedHeaders.has(h)}
                                       onRename={(newName) => handleRenameColumn(h, newName)}
-                                      onDelete={() => handleDeleteColumn(h)}
+                                      onDelete={() => handleHideColumnForActiveVillage(realIdx, h)}
                                     />
                                     {(row[h] || '').trim() !== '' && (
                                       <button

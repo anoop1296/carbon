@@ -43,7 +43,10 @@ function short(s: string, n = 32) { return s.length > n ? s.slice(0, n) + '…' 
 
 function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
   const [sort, setSort]     = useState<Sort>('value');
-  const [topN, setTopN]     = useState(6);
+  // Default to "show all" so newly added small-value activities (e.g. admin
+  // just added a column with value 2,020 next to 5L-kg entries) aren't hidden
+  // by a Top-6 cap. User can switch to Top 6 / Top 10 manually.
+  const [topN, setTopN]     = useState<number | null>(null);
   const [sector, setSector] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
 
@@ -78,7 +81,7 @@ function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
     sort === 'value' ? b.value - a.value : sort === 'sector' ? a.sector.localeCompare(b.sector) || b.value - a.value : a.label.localeCompare(b.label)
   );
   const filtered = sector ? sorted.filter(x => x.sector === sector) : sorted;
-  const visible  = filtered.slice(0, topN);
+  const visible  = topN === null ? filtered : filtered.slice(0, topN);
   const maxVal   = Math.max(...visible.map(x => x.value), 1);
   const sel      = visible.find(x => x.label === picked) || visible[0];
 
@@ -105,12 +108,16 @@ function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
             </button>
           ))}
           <span className="ml-auto flex gap-1.5">
-            {[6, 10, filtered.length].map((n, i) => (
-              <button key={i} type="button" onClick={() => setTopN(n)}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${topN === n ? 'border-[#2d6a4f] bg-[#edf7f0] text-[#2d6a4f]' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#2d6a4f]'}`}>
-                {i === 2 ? 'All' : `Top ${n}`}
-              </button>
-            ))}
+            {([6, 10, null] as (number | null)[]).map((n, i) => {
+              const isActive = topN === n;
+              const label = n === null ? 'All' : `Top ${n}`;
+              return (
+                <button key={i} type="button" onClick={() => setTopN(n)}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-all ${isActive ? 'border-[#2d6a4f] bg-[#edf7f0] text-[#2d6a4f]' : 'border-[#e4e2dd] bg-white text-[#6b6860] hover:border-[#2d6a4f]'}`}>
+                  {label}
+                </button>
+              );
+            })}
           </span>
         </div>
 
