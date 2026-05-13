@@ -9,6 +9,23 @@ interface EmissionRow {
   sector: string; activity: string; annual_co2_kg: string;
 }
 
+interface FactorRow {
+  category: string; emission_factor: string; source: string;
+  [key: string]: string;
+}
+
+const FACTOR_KNOWN   = new Set(['category', 'emission_factor', 'source']);
+const FACTOR_PILLS   = [
+  'bg-[#eef3ff] text-[#2040a0] border-[#b8ccf4]',
+  'bg-[#fff0e8] text-[#b05010] border-[#f4b896]',
+  'bg-[#f8eeff] text-[#5020a0] border-[#d0a8f4]',
+  'bg-[#edfaf3] text-[#106030] border-[#96dbb4]',
+  'bg-[#fffbec] text-[#8a6208] border-[#f5d78a]',
+  'bg-[#ecfcfc] text-[#066066] border-[#8cd8d8]',
+];
+function titleCase(s: string) { return s.replace(/\b[a-z]/g, c => c.toUpperCase()); }
+function factorLabel(k: string) { return titleCase(k.replace(/_/g, ' ')); }
+
 const SECTOR_COLORS = [
   { bg: '#fff0e8', border: '#f4b896', bar: '#e2711d', text: '#b05010' },
   { bg: '#fffbec', border: '#f5d78a', bar: '#c8920a', text: '#8a6208' },
@@ -193,6 +210,54 @@ function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
   );
 }
 
+function FactorsTable({ rows }: { rows: FactorRow[] }) {
+  if (!rows.length) return (
+    <div className="rounded-2xl border border-[#e4e2dd] bg-white p-10 text-center text-sm text-[#6b6860]">No emission factors</div>
+  );
+
+  const sources   = Array.from(new Set(rows.map(r => r.source).filter(Boolean)));
+  const srcIdx    = new Map(sources.map((s, i) => [s, i] as const));
+  const allKeys   = Array.from(rows.reduce((s, r) => { Object.keys(r).forEach(k => s.add(k)); return s; }, new Set<string>()));
+  const extraCols = allKeys.filter(k => !FACTOR_KNOWN.has(k));
+
+  const pillFor = (source: string) => FACTOR_PILLS[(srcIdx.get(source) ?? 0) % FACTOR_PILLS.length];
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[#e4e2dd] bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-[#1a1a1a]">Emission Factors</h3>
+          <p className="mt-0.5 text-xs text-[#6b6860]">Reference values · {rows.length} entries · extra columns auto-rendered</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {sources.map(s => (
+            <span key={s} className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${pillFor(s)}`}>{s}</span>
+          ))}
+        </div>
+      </div>
+      <div className="divide-y divide-[#f4f2ee]">
+        {rows.map((row, i) => {
+          const abbrev = row.category?.match(/\b\w/g)?.join('').toUpperCase().slice(0, 3) || row.category?.slice(0, 3).toUpperCase() || '—';
+          const pill   = pillFor(row.source);
+          return (
+            <div key={i} className="flex flex-wrap items-center gap-3 px-5 py-3 transition-colors hover:bg-[#f8f7f4]">
+              <span className={`inline-flex min-w-10 justify-center rounded-full border px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${pill}`}>{abbrev}</span>
+              <span className="min-w-[130px] flex-1 text-sm font-bold text-[#1a1a1a]">{titleCase(row.category || '')}</span>
+              <span className="text-sm font-black text-[#1a1a1a]">{row.emission_factor}</span>
+              {extraCols.map(col => row[col]?.trim() ? (
+                <span key={col} className="rounded-full border border-[#e4e2dd] bg-[#f8f7f4] px-2 py-0.5 text-[10px] text-[#6b6860]">
+                  <span className="font-semibold">{factorLabel(col)}:</span> {row[col]}
+                </span>
+              ) : null)}
+              {row.source && <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${pill}`}>{row.source}</span>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Spinner() {
   return (
     <div className="flex h-64 items-center justify-center">
@@ -202,18 +267,43 @@ function Spinner() {
 }
 
 export default function Emissions({ vlcode }: { vlcode: string }) {
-  const [rows, setRows]       = useState<EmissionRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows]         = useState<EmissionRow[] | null>(null);
+  const [factors, setFactors]   = useState<FactorRow[] | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!vlcode) return;
+    let cancelled = false;
     setLoading(true);
-    fetch(`/api/emissions?vlcode=${vlcode}`, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(d => setRows(d.data || []))
-      .finally(() => setLoading(false));
-  }, [vlcode]);
+    Promise.all([
+      fetch(`/api/emissions?vlcode=${vlcode}&_=${reloadKey}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ data: [] })),
+      fetch(`/api/emission-factors?_=${reloadKey}`,            { cache: 'no-store' }).then(r => r.json()).catch(() => ({ data: [] })),
+    ])
+      .then(([em, fac]) => {
+        if (cancelled) return;
+        setRows(em.data || []);
+        setFactors(fac.data || []);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [vlcode, reloadKey]);
 
   if (loading) return <Spinner />;
-  return <EmissionsChart rows={rows} />;
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setReloadKey(k => k + 1)}
+          title="Refresh emissions & factor data"
+          className="rounded-lg border border-[#e4e2dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#6b6860] hover:border-[#1a1a1a] hover:text-[#1a1a1a]"
+        >
+          ↻ Refresh
+        </button>
+      </div>
+      <EmissionsChart rows={rows} />
+      <FactorsTable rows={factors || []} />
+    </div>
+  );
 }

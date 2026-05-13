@@ -57,9 +57,29 @@ function EditCell({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Latest prop value, used so stale closures inside async blur don't clobber.
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
 
-  useEffect(() => { setDraft(value); }, [value]);
-  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+  // Only sync draft from prop when NOT editing — otherwise a parent re-render
+  // mid-typing would overwrite what the user just typed.
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = (next: string) => {
+    setEditing(false);
+    // Only call onChange if value actually changed — prevents needless saves
+    // and prevents an in-flight unrelated save from being clobbered.
+    if (next !== valueRef.current) onChange(next);
+  };
 
   if (locked) {
     return (
@@ -75,10 +95,10 @@ function EditCell({
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { setEditing(false); onChange(draft); }}
+        onBlur={() => commit(draft)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { setEditing(false); onChange(draft); }
-          if (e.key === 'Escape') { setEditing(false); setDraft(value); }
+          if (e.key === 'Enter') { e.preventDefault(); commit(draft); }
+          if (e.key === 'Escape') { setEditing(false); setDraft(valueRef.current); }
         }}
         className="w-full min-w-[80px] rounded border border-emerald-400 bg-white px-2 py-1 text-xs text-slate-800 outline-none ring-1 ring-emerald-300"
       />
@@ -88,7 +108,7 @@ function EditCell({
   return (
     <button
       type="button"
-      onClick={() => setEditing(true)}
+      onClick={() => { setDraft(value); setEditing(true); }}
       title="Click to edit"
       className="block w-full max-w-full truncate rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-900"
     >
@@ -327,14 +347,20 @@ export default function AdminPage() {
   }, [activeFile, checkingAuth]);
 
   // ── cell edit & save ──────────────────────────────────────────────────────
+  // We optimistically update local state and DO NOT overwrite rows from the
+  // server response — otherwise concurrent edits in different cells race and
+  // an in-flight PUT can clobber a newer edit. Headers may change (new column
+  // appended server-side), so only merge new headers.
   async function handleCellChange(rowIndex: number, col: string, val: string) {
-    const updated = rows.map((r, i) => i === rowIndex ? { ...r, [col]: val } : r);
-    setRows(updated);
+    if (val === (rows[rowIndex]?.[col] ?? '')) return; // no-op edits skip the network
+    setRows(prev => prev.map((r, i) => i === rowIndex ? { ...r, [col]: val } : r));
     setSaving(true);
     try {
-      const d = await apiPut(activeFile, rowIndex, updated[rowIndex]);
-      setRows(d.rows);
-      setHeaders(d.headers);
+      const d = await apiPut(activeFile, rowIndex, { [col]: val });
+      setHeaders(prev => {
+        const extra = d.headers.filter(h => !prev.includes(h));
+        return extra.length ? [...prev, ...extra] : prev;
+      });
       if (activeFile === MASTER_FILE) await loadVillages(activeVlcode);
     } catch (e) {
       showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
@@ -573,12 +599,16 @@ export default function AdminPage() {
     }
   }
 
-  // ── filter rows by active village for non-master files ────────────────────
-  const visibleRows = isMasterFile
+  // ── filter rows by active village for non-master, village-scoped files ────
+  // Files like Emission_Factors.csv don't have a VL_CODE column — those are
+  // global reference data, so we show ALL rows regardless of active village.
+  const isVillageScoped = !isMasterFile && headers.includes(VL_CODE);
+
+  const visibleRows = !isVillageScoped
     ? rows
     : rows.filter((r) => !activeVlcode || r[VL_CODE] === activeVlcode || r[VL_CODE] === '');
 
-  const visibleRowIndices = isMasterFile
+  const visibleRowIndices = !isVillageScoped
     ? rows.map((_, i) => i)
     : rows
         .map((r, i) => ({ r, i }))
@@ -587,7 +617,9 @@ export default function AdminPage() {
 
   const visibleHeaders = isMasterFile
     ? headers
-    : headers.filter((h) => h !== VL_CODE && h !== VL_NAME);
+    : isVillageScoped
+      ? headers.filter((h) => h !== VL_CODE && h !== VL_NAME)
+      : headers;
 
   // ── master view: group columns by file, optionally filter ─────────────────
   const masterFilesPresent = Array.from(new Set(masterColumns.filter(c => !c.isIdentity).map(c => c.file)));
@@ -919,11 +951,11 @@ export default function AdminPage() {
                   >
                     + Column
                   </button>
-                  {(isMasterFile || activeVillage) && (
+                  {isMasterFile && (
                     <button
                       onClick={handleAddRow}
                       disabled={saving}
-                      title={isMasterFile ? 'Add a new row' : `Add a row for ${activeVillage?.[VL_NAME] || 'this village'}`}
+                      title="Add a new row"
                       className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                     >
                       + Row
@@ -1031,12 +1063,6 @@ export default function AdminPage() {
                         const realIdx = visibleRowIndices[visIdx];
                         return (
                           <section key={`${activeFile}-${realIdx}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                            <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-emerald-100 text-[11px] font-bold text-emerald-700">
-                                {visIdx + 1}
-                              </span>
-                              <span className="truncate text-xs font-semibold text-slate-700">{activeFile}</span>
-                            </div>
                             <div className="divide-y divide-slate-100">
                               {visibleHeaders.map((h) => (
                                 <div key={h} className="grid gap-2 px-4 py-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
