@@ -18,7 +18,7 @@ export async function GET(req: Request) {
     const filtered = pkFilter ? rows.filter(r => r[pkCol] === pkFilter) : rows;
     const data: Record<string, string>[] = [];
 
-    const titleCase = (s: string) => s.replace(/\b\p{L}/gu, c => c.toUpperCase());
+    const titleCase = (s: string) => s.replace(/\b[a-z]/g, c => c.toUpperCase());
 
     for (const row of filtered) {
       for (const [col, val] of Object.entries(row)) {
