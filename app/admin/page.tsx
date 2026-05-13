@@ -127,11 +127,13 @@ function LabelEditor({
   display,
   disabled,
   onRename,
+  onDelete,
 }: {
   name: string;
   display: string;
   disabled: boolean;
   onRename: (newName: string) => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
@@ -148,7 +150,13 @@ function LabelEditor({
   const commit = () => {
     setEditing(false);
     const next = draft.trim();
-    if (next && next !== name) onRename(next);
+    if (!next) {
+      // Blank submit → delete the column (only if a handler is provided).
+      if (onDelete) onDelete();
+      else setDraft(name); // no deleter → revert
+      return;
+    }
+    if (next !== name) onRename(next);
   };
 
   if (disabled) {
@@ -1104,6 +1112,7 @@ export default function AdminPage() {
                                     display={toLabel(h)}
                                     disabled={isProtected}
                                     onRename={(newName) => handleRenameColumn(h, newName)}
+                                    onDelete={() => handleDeleteColumn(h)}
                                   />
                                   {!isProtected && (
                                     <button
@@ -1177,6 +1186,7 @@ export default function AdminPage() {
                                       display={toLabel(h)}
                                       disabled={h === VL_CODE || h === VL_NAME}
                                       onRename={(newName) => handleRenameColumn(h, newName)}
+                                      onDelete={() => handleDeleteColumn(h)}
                                     />
                                     {(row[h] || '').trim() !== '' && (
                                       <button
