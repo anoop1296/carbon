@@ -356,3 +356,24 @@ export async function deleteCSVColumn(filename: string, colName: string) {
 
   return writeCSV(filename, newHeaders, newRows);
 }
+
+export async function renameCSVColumn(filename: string, oldName: string, newName: string) {
+  const current = await readCSV(filename);
+
+  const from = oldName.trim();
+  const to   = newName.trim();
+  if (!from) throw new Error('Existing column name is required.');
+  if (!to)   throw new Error('New column name is required.');
+  if (from === to) return current;
+  if (!current.headers.includes(from)) throw new Error(`Column "${from}" not found.`);
+  if (current.headers.includes(to))    throw new Error(`Column "${to}" already exists.`);
+
+  const newHeaders = current.headers.map((h) => (h === from ? to : h));
+  const newRows = current.rows.map((row) => {
+    const next: Record<string, string> = {};
+    for (const h of current.headers) next[h === from ? to : h] = row[h] ?? '';
+    return normalizeRow(newHeaders, next);
+  });
+
+  return writeCSV(filename, newHeaders, newRows);
+}
