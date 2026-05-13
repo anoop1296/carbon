@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAdminSession, isAdminAuthError } from '@/lib/adminAuth';
-import { appendCSVRow, deleteCSVColumn, deleteCSVRow, readCSV, updateCSVRow } from '@/lib/csvParser';
+import { appendCSVRow, deleteCSVColumn, deleteCSVRow, readCSV, renameCSVColumn, updateCSVRow } from '@/lib/csvParser';
 
 export const dynamic = 'force-dynamic';
 
@@ -142,6 +142,40 @@ export async function DELETE(req: Request, { params }: RouteContext) {
     console.error(`[/api/admin/csv/${params.filename}] DELETE`, error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to delete.' },
+      { status: 400 }
+    );
+  }
+}
+
+export async function PATCH(req: Request, { params }: RouteContext) {
+  try {
+    await getAdminSession();
+    const decodedFilename = decodeURIComponent(params.filename);
+    const body = await req.json();
+    const oldName = typeof body?.oldName === 'string' ? body.oldName : '';
+    const newName = typeof body?.newName === 'string' ? body.newName : '';
+
+    if (!oldName || !newName) {
+      return NextResponse.json({ success: false, error: 'oldName and newName are required.' }, { status: 400 });
+    }
+
+    const csv = await renameCSVColumn(decodedFilename, oldName, newName);
+    return NextResponse.json({
+      success: true,
+      filename: csv.filename,
+      headers: csv.headers,
+      rows: csv.rows,
+      rowCount: csv.rows.length,
+      message: `Column renamed "${oldName}" → "${newName}".`,
+    });
+  } catch (error) {
+    if (isAdminAuthError(error)) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
+
+    console.error(`[/api/admin/csv/${params.filename}] PATCH`, error);
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Failed to rename column.' },
       { status: 400 }
     );
   }

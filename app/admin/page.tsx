@@ -121,6 +121,68 @@ function EditCell({
   );
 }
 
+// ── inline-edit column label ───────────────────────────────────────────────
+function LabelEditor({
+  name,
+  display,
+  disabled,
+  onRename,
+}: {
+  name: string;
+  display: string;
+  disabled: boolean;
+  onRename: (newName: string) => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (!editing) setDraft(name); }, [name, editing]);
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (next && next !== name) onRename(next);
+  };
+
+  if (disabled) {
+    return <span className="truncate text-[11px] font-semibold uppercase text-slate-500">{display}</span>;
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+          if (e.key === 'Escape') { setEditing(false); setDraft(name); }
+        }}
+        className="min-w-[120px] rounded border border-emerald-400 bg-white px-2 py-1 text-[11px] font-semibold uppercase text-slate-700 outline-none ring-1 ring-emerald-300"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => { setDraft(name); setEditing(true); }}
+      title="Click to rename this column"
+      className="truncate rounded px-1 py-0.5 text-left text-[11px] font-semibold uppercase text-slate-500 hover:bg-emerald-50 hover:text-emerald-800"
+    >
+      {display}
+    </button>
+  );
+}
+
 // ── main component ──────────────────────────────────────────────────────────
 export default function AdminPage() {
   const router = useRouter();
@@ -232,6 +294,16 @@ export default function AdminPage() {
     });
     const d = await res.json();
     if (!res.ok || !d.success) throw new Error(d.error || 'Failed to delete column.');
+    return d as { headers: string[]; rows: CsvRow[] };
+  }
+
+  async function apiRenameCol(file: string, oldName: string, newName: string) {
+    const res = await fetch(`/api/admin/csv/${encodeURIComponent(file)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldName, newName }),
+    });
+    const d = await res.json();
+    if (!res.ok || !d.success) throw new Error(d.error || 'Failed to rename column.');
     return d as { headers: string[]; rows: CsvRow[] };
   }
 
@@ -491,6 +563,30 @@ export default function AdminPage() {
       setActiveVlcode(remaining[0]?.[VL_CODE] || '');
       showToast('ok', 'Village deleted.');
       if (activeFile === MASTER_FILE) { setHeaders(d.headers); setRows(d.rows); }
+    } catch (e) {
+      showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── rename column ────────────────────────────────────────────────────────
+  async function handleRenameColumn(oldName: string, newName: string) {
+    if (oldName === VL_CODE || oldName === VL_NAME) {
+      showToast('err', 'Cannot rename the primary key or name column.'); return;
+    }
+    const raw = newName.trim().replace(/\s+/g, '_');
+    if (!raw) return;
+    if (raw === oldName) return;
+    if (headers.includes(raw)) { showToast('err', `Column "${raw}" already exists.`); return; }
+
+    setSaving(true);
+    try {
+      const d = await apiRenameCol(activeFile, oldName, raw);
+      setHeaders(d.headers);
+      setRows(d.rows);
+      showToast('ok', `Renamed "${oldName}" → "${raw}".`);
+      if (activeFile === MASTER_FILE) await loadVillages(activeVlcode);
     } catch (e) {
       showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
     } finally {
@@ -1003,7 +1099,12 @@ export default function AdminPage() {
                             return (
                               <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
                                 <div className="flex items-center gap-1.5">
-                                  <span>{toLabel(h)}</span>
+                                  <LabelEditor
+                                    name={h}
+                                    display={toLabel(h)}
+                                    disabled={isProtected}
+                                    onRename={(newName) => handleRenameColumn(h, newName)}
+                                  />
                                   {!isProtected && (
                                     <button
                                       type="button"
@@ -1071,7 +1172,12 @@ export default function AdminPage() {
                               {visibleHeaders.map((h) => (
                                 <div key={h} className="grid gap-2 px-4 py-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
                                   <div className="flex min-w-0 items-center gap-2">
-                                    <span className="truncate text-[11px] font-semibold uppercase text-slate-500">{toLabel(h)}</span>
+                                    <LabelEditor
+                                      name={h}
+                                      display={toLabel(h)}
+                                      disabled={h === VL_CODE || h === VL_NAME}
+                                      onRename={(newName) => handleRenameColumn(h, newName)}
+                                    />
                                     {(row[h] || '').trim() !== '' && (
                                       <button
                                         type="button"
