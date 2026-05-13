@@ -110,9 +110,13 @@ function EditCell({
       type="button"
       onClick={() => { setDraft(value); setEditing(true); }}
       title="Click to edit"
-      className="block w-full max-w-full truncate rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-900"
+      className={`block w-full min-h-[28px] max-w-full truncate rounded border px-2 py-1.5 text-left text-xs cursor-text transition-colors ${
+        value
+          ? 'border-transparent text-slate-700 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-900'
+          : 'border-dashed border-slate-200 text-slate-300 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'
+      }`}
     >
-      {value || <span className="text-slate-300">click to edit</span>}
+      {value || 'click to edit'}
     </button>
   );
 }
