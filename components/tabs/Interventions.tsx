@@ -19,9 +19,10 @@ const COLORS = [
 ];
 
 const META_KEYS = new Set(['sector', 'intervention', 'column']);
+const CO2_KEY = 'annual_co2_reduction_kg';
 
 function toNum(v: string) { const n = parseFloat(v || '0'); return isFinite(n) ? n : 0; }
-function trunc(s: string, n = 18) { return s.length > n ? s.slice(0, n) + '…' : s; }
+function trunc(s: string, n = 18) { return s.length > n ? s.slice(0, n) + '...' : s; }
 function toLabel(k: string) { return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 
 function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
@@ -34,7 +35,10 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  const items = useMemo(() => rows.filter(r => r.sector || r.intervention), [rows]);
+  const items = useMemo(
+    () => rows.filter(r => (r.sector || r.intervention) && toNum(r[CO2_KEY]) > 0),
+    [rows]
+  );
   const sectorIdx = useMemo(() => {
     const m = new Map<string, number>();
     items.forEach(r => { if (!m.has(r.sector)) m.set(r.sector, m.size); });
@@ -44,17 +48,15 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
   if (!items.length) return (
     <div className="rounded-2xl border border-[#e4e2dd] bg-white p-12 text-center text-sm text-[#6b6860]">No intervention data</div>
   );
-
-  const co2Key   = 'annual_co2_reduction_kg';
-  const total    = items.reduce((s, r) => s + toNum(r[co2Key]) / 1000, 0);
+  const total    = items.reduce((s, r) => s + toNum(r[CO2_KEY]) / 1000, 0);
   const sectors  = Array.from(new Set(items.map(r => r.sector))).filter(Boolean);
   const filtered = selSector ? items.filter(r => r.sector === selSector) : items;
 
   const plotData = [{
     x: filtered.map(r => trunc(r.intervention || 'Unknown', narrow ? 14 : 24)),
-    y: filtered.map(r => toNum(r[co2Key]) / 1000),
+    y: filtered.map(r => toNum(r[CO2_KEY]) / 1000),
     customdata: filtered.map(r => r.intervention || 'Unknown'),
-    type: 'bar', name: 'CO₂ Reduction',
+    type: 'bar', name: 'CO2 Reduction',
     marker: {
       color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar),
       line:  { color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar), width: 0 },
@@ -67,7 +69,7 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
     margin: { l: narrow ? 42 : 56, r: 12, t: 12, b: narrow ? 100 : 130 },
     bargap: 0.3, hovermode: 'closest', showlegend: false,
     xaxis: { tickangle: -35, automargin: true, tickfont: { color: '#6b6860', size: narrow ? 9 : 10 }, gridcolor: '#f0ede8', linecolor: '#e4e2dd' },
-    yaxis: { title: { text: 'CO₂ Reduction (t/yr)', font: { color: '#6b6860', size: 11 } }, tickfont: { color: '#6b6860', size: 10 }, gridcolor: '#f0ede8', zeroline: true, zerolinecolor: '#e4e2dd' },
+    yaxis: { title: { text: 'CO2 Reduction (t/yr)', font: { color: '#6b6860', size: 11 } }, tickfont: { color: '#6b6860', size: 10 }, gridcolor: '#f0ede8', zeroline: true, zerolinecolor: '#e4e2dd' },
     font: { family: 'system-ui, sans-serif', color: '#1a1a1a' },
     autosize: true,
   };
@@ -77,12 +79,12 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Intervention Reductions</h3>
-          <p className="mt-0.5 text-xs text-[#6b6860]">Annual CO₂ savings · sectors auto-detected from CSV</p>
+          <p className="mt-0.5 text-xs text-[#6b6860]">Annual CO2 savings - sectors auto-detected from CSV</p>
         </div>
         <div className="rounded-xl border border-[#96dbb4] bg-[#edfaf3] px-5 py-2.5 text-center">
           <p className="text-[9px] font-bold uppercase tracking-widest text-[#106030]">Total Saved</p>
           <p className="mt-0.5 text-2xl font-black text-[#1a8a50]">{total.toFixed(1)}</p>
-          <p className="text-[10px] text-[#106030]">t CO₂e / yr</p>
+          <p className="text-[10px] text-[#106030]">t CO2e / yr</p>
         </div>
       </div>
 
@@ -120,18 +122,18 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
           <div className="space-y-2">
             {filtered.map((r, i) => {
               const c      = COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length];
-              const extras = Object.entries(r).filter(([k, v]) => !META_KEYS.has(k) && k !== co2Key && k !== r.column && (v || '').trim() && !/^vlcode$|^village_name$|^village_code$/i.test(k));
+              const extras = Object.entries(r).filter(([k, v]) => !META_KEYS.has(k) && k !== CO2_KEY && k !== r.column && (v || '').trim() && !/^vlcode$|^village_name$|^village_code$/i.test(k));
               return (
                 <div key={i} className={`overflow-hidden rounded-xl border p-4 ${c.card}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="min-w-0 md:flex-1">
-                      <p className="break-words text-sm font-black text-[#1a1a1a]">{r.intervention || '—'}</p>
+                      <p className="break-words text-sm font-black text-[#1a1a1a]">{r.intervention || '-'}</p>
                       <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${c.pill}`}>{r.sector}</span>
                     </div>
                     <div className="grid w-full shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 md:w-auto md:auto-cols-[minmax(120px,1fr)] md:grid-flow-col md:grid-cols-none">
                       <div className="rounded-lg border border-white bg-white px-3 py-2">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">CO₂ Saved</p>
-                        <p className="mt-0.5 text-sm font-black" style={{ color: c.txt }}>{(toNum(r[co2Key]) / 1000).toFixed(3)} t</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-[#6b6860]">CO2 Saved</p>
+                        <p className="mt-0.5 text-sm font-black" style={{ color: c.txt }}>{(toNum(r[CO2_KEY]) / 1000).toFixed(3)} t</p>
                       </div>
                       {extras.map(([k, v]) => (
                         <div key={k} className="rounded-lg border border-white bg-white px-3 py-2">
@@ -185,7 +187,7 @@ export default function Interventions({ vlcode }: { vlcode: string }) {
           className="rounded-lg border border-[#e4e2dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#6b6860] hover:border-[#1a1a1a] hover:text-[#1a1a1a]"
           title="Refresh interventions data"
         >
-          ↻ Refresh
+          ? Refresh
         </button>
       </div>
       <InterventionsChart rows={rows || []} />

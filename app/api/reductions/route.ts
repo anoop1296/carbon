@@ -1,4 +1,4 @@
-// Reads interventions.csv — fully dynamic, all non-identity columns returned as-is.
+// Reads interventions.csv - fully dynamic, all non-identity columns returned as-is.
 // Intervention name = exact column name from admin (underscores rendered as spaces).
 // Sector = first underscore-separated segment if present, else 'General'.
 import { NextResponse } from 'next/server';

@@ -20,7 +20,7 @@ function toLabel(k: string) { return k.replace(/_/g, ' ').replace(/\b\w/g, c => 
 function initials(s: string) { return s.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3) || 'SEQ'; }
 
 // Flatten rows into per-attribute entries: each non-identity column becomes its own card.
-// Column name → label, cell value → numeric value.
+// Column name ? label, cell value ? numeric value.
 function flatten(rows: Row[]): Attr[] {
   const out: Attr[] = [];
   for (const row of rows) {
@@ -48,7 +48,7 @@ function SequestrationChart({ before, after }: { before: Row[]; after: Row[] }) 
       <div className="flex flex-col gap-3 border-b border-[#f0ede8] bg-[#f8f7f4] px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-lg font-black text-[#1a1a1a]">Carbon Sequestration</h3>
-          <p className="mt-0.5 text-xs text-[#6b6860]">Natural sinks + intervention planting · fields auto-detected</p>
+          <p className="mt-0.5 text-xs text-[#6b6860]">Natural sinks + intervention planting - fields auto-detected</p>
         </div>
         <div className="flex gap-3">
           <div className="rounded-xl border border-[#f5d78a] bg-[#fffbec] px-4 py-2 text-center">

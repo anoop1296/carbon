@@ -20,6 +20,7 @@ const MASTER_FILE = 'Village.csv';
 const DEFAULT_VL_CODE = 'vlcode';
 const DEFAULT_VL_NAME = 'village_name';
 const MASTER_VIEW_ID = '__master_view__';
+const GLOBAL_FILES = new Set(['Emission_Factors.csv', 'Monthly_Activity_Wide.csv']);
 
 function toLabel(col: string) {
   return col.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -285,6 +286,11 @@ export default function AdminPage() {
   const isMasterFile = activeFile === MASTER_FILE;
   const isMasterView = activeFile === MASTER_VIEW_ID;
   const needsCategory = activeFile === 'sequestration.csv' || activeFile === 'budget.csv';
+  const canReuseExistingVillageColumn = !isMasterFile && !GLOBAL_FILES.has(activeFile);
+  const filePkCol = headers[0] || VL_CODE;
+  const fileNameCol = headers[1] || VL_NAME;
+  const isVillageScoped = canReuseExistingVillageColumn && headers.length > 0;
+  const protectedHeaders = new Set(isMasterFile ? [VL_CODE, VL_NAME] : [filePkCol, fileNameCol].filter(Boolean));
 
   // ── toast helper ──────────────────────────────────────────────────────────
   function showToast(type: 'ok' | 'err', msg: string) {
@@ -471,7 +477,7 @@ export default function AdminPage() {
   // an in-flight PUT can clobber a newer edit. Headers may change (new column
   // appended server-side), so only merge new headers.
   async function handleCellChange(rowIndex: number, col: string, val: string) {
-    if (val === (rows[rowIndex]?.[col] ?? '')) return; // no-op edits skip the network
+    if (val === (rows[rowIndex]?.[col] || '')) return; // no-op edits skip the network
     setRows(prev => prev.map((r, i) => i === rowIndex ? { ...r, [col]: val } : r));
     setSaving(true);
     try {
@@ -497,8 +503,8 @@ export default function AdminPage() {
     }, {} as CsvRow);
 
     if (!isMasterFile && activeVillage) {
-      if (headers.includes(VL_CODE)) emptyRow[VL_CODE] = activeVillage[VL_CODE] || '';
-      if (headers.includes(VL_NAME)) emptyRow[VL_NAME] = activeVillage[VL_NAME] || '';
+      if (headers.includes(filePkCol)) emptyRow[filePkCol] = activeVillage[VL_CODE] || '';
+      if (headers.includes(fileNameCol)) emptyRow[fileNameCol] = activeVillage[VL_NAME] || '';
     }
 
     setSaving(true);
@@ -540,24 +546,81 @@ export default function AdminPage() {
       showToast('err', 'Please choose a category (Existing or Added).');
       return;
     }
-    const col = needsCategory ? `${newColCategory}_${raw}` : raw;
-    if (headers.includes(col)) { showToast('err', `Column "${col}" already exists.`); return; }
+
+    const requested = needsCategory ? `${newColCategory}_${raw}` : raw;
+    const activeVillageRowIndex = isVillageScoped
+      ? rows.findIndex((row) => row[filePkCol] === activeVlcode)
+      : -1;
+    // Case-insensitive header lookup so "Livestock" and "livestock" don't
+    // create duplicate columns by accident.
+    const existingHeader = headers.find(h => h.toLowerCase() === requested.toLowerCase());
+    const hasColumn = !!existingHeader;
+    // If the column already exists, reuse its EXACT casing instead of creating
+    // a near-duplicate header (e.g. user types "livestock" but header is
+    // "Livestock" — we want the field to map to the existing column).
+    const col = existingHeader || requested;
 
     setSaving(true);
     try {
-      if (rows.length === 0) {
+      let d: { headers: string[]; rows: CsvRow[] } | null = null;
+
+      if (hasColumn) {
+        // Column header is already in the CSV — just make it visible/usable
+        // for THIS village. Same column name across villages is fully allowed:
+        // each village still keeps its own per-row value.
+        if (activeVillageRowIndex >= 0) {
+          addPendingCol(col);
+          setNewColName('');
+          setNewColCategory(null);
+          setShowAddCol(false);
+          showToast('ok', `"${col}" ready for this village — click the cell to enter a value.`);
+          return;
+        }
+
+        if (activeVillage && isVillageScoped) {
+          // No row yet for this village in this file — create one. The column
+          // already exists in headers, so just seeding {pk, name} is enough.
+          const seedRow: CsvRow = { [col]: '' };
+          const pk = activeVillage[VL_CODE] || '';
+          const name = activeVillage[VL_NAME] || '';
+          if (pk) seedRow[filePkCol] = pk;
+          if (name) seedRow[fileNameCol] = name;
+          d = await apiPost(activeFile, seedRow);
+        } else {
+          // Global file (no village dimension) or master file: column exists,
+          // just expose it to the user — no structural change needed.
+          addPendingCol(col);
+          setNewColName('');
+          setNewColCategory(null);
+          setShowAddCol(false);
+          showToast('ok', `"${col}" is ready — click the cell to enter a value.`);
+          return;
+        }
+      } else if (canReuseExistingVillageColumn && activeVillage) {
+        if (activeVillageRowIndex >= 0) {
+          d = await apiPut(activeFile, activeVillageRowIndex, { [col]: '' });
+        } else {
+          const seedRow: CsvRow = { [col]: '' };
+          const pk = activeVillage[VL_CODE] || '';
+          const name = activeVillage[VL_NAME] || '';
+          if (pk) seedRow[filePkCol] = pk;
+          if (name) seedRow[fileNameCol] = name;
+          d = await apiPost(activeFile, seedRow);
+        }
+      } else if (rows.length === 0) {
         const seedRow: CsvRow = { [col]: '' };
         if (!isMasterFile && activeVillage) {
-          const pk   = activeVillage[VL_CODE] || '';
+          const pk = activeVillage[VL_CODE] || '';
           const name = activeVillage[VL_NAME] || '';
-          if (pk)   seedRow[VL_CODE] = pk;
-          if (name) seedRow[VL_NAME] = name;
+          if (pk) seedRow[filePkCol] = pk;
+          if (name) seedRow[fileNameCol] = name;
         }
-        const d = await apiPost(activeFile, seedRow);
-        setRows(d.rows);
-        setHeaders(d.headers);
+        d = await apiPost(activeFile, seedRow);
       } else {
-        const d = await apiPut(activeFile, 0, { ...rows[0], [col]: '' });
+        d = await apiPut(activeFile, 0, { [col]: '' });
+      }
+
+      if (d) {
         setRows(d.rows);
         setHeaders(d.headers);
       }
@@ -573,7 +636,7 @@ export default function AdminPage() {
     }
   }
 
-  // ── add village ───────────────────────────────────────────────────────────
+  // add village
   async function handleAddVillage() {
     if (!newVillage[VL_CODE] || !newVillage[VL_NAME]) {
       showToast('err', 'Village code and name are required.'); return;
@@ -616,13 +679,25 @@ export default function AdminPage() {
 
   // ── rename column ────────────────────────────────────────────────────────
   async function handleRenameColumn(oldName: string, newName: string) {
-    if (oldName === VL_CODE || oldName === VL_NAME) {
+    if (protectedHeaders.has(oldName)) {
       showToast('err', 'Cannot rename the primary key or name column.'); return;
     }
     const raw = newName.trim().replace(/\s+/g, '_');
     if (!raw) return;
     if (raw === oldName) return;
-    if (headers.includes(raw)) { showToast('err', `Column "${raw}" already exists.`); return; }
+
+    // If the target name already exists, treat this as "use the existing
+    // column instead" — case-insensitive match. This lets the user retype an
+    // existing column name (e.g. Gosaipur has "livestok", Bhatsar wants the
+    // same) without the rename being blocked. We just expose that column for
+    // the active village; the per-village row values stay independent.
+    const existing = headers.find(h => h.toLowerCase() === raw.toLowerCase());
+    if (existing && existing !== oldName) {
+      addPendingCol(existing);
+      removePendingCol(oldName);
+      showToast('ok', `"${existing}" is ready for this village — click the cell to enter a value.`);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -640,7 +715,7 @@ export default function AdminPage() {
 
   // ── delete column ────────────────────────────────────────────────────────
   async function handleDeleteColumn(col: string) {
-    if (col === VL_CODE || col === VL_NAME) {
+    if (protectedHeaders.has(col)) {
       showToast('err', `Cannot delete primary key or name column.`); return;
     }
     const msg = `⚠️ DELETE COLUMN — NOT just this cell.\n\nColumn: "${col}"\nFile:   "${activeFile}"\n\nThis removes "${col}" from ALL villages permanently.\nIf you only want to clear this village's value, click the value and delete its text instead.\n\nProceed?`;
@@ -746,23 +821,22 @@ export default function AdminPage() {
   // ── filter rows by active village for non-master, village-scoped files ────
   // Files like Emission_Factors.csv don't have a VL_CODE column — those are
   // global reference data, so we show ALL rows regardless of active village.
-  const isVillageScoped = !isMasterFile && headers.includes(VL_CODE);
 
   const visibleRows = !isVillageScoped
     ? rows
-    : rows.filter((r) => !activeVlcode || r[VL_CODE] === activeVlcode || r[VL_CODE] === '');
+    : rows.filter((r) => !activeVlcode || r[filePkCol] === activeVlcode || r[filePkCol] === '');
 
   const visibleRowIndices = !isVillageScoped
     ? rows.map((_, i) => i)
     : rows
         .map((r, i) => ({ r, i }))
-        .filter(({ r }) => !activeVlcode || r[VL_CODE] === activeVlcode || r[VL_CODE] === '')
+        .filter(({ r }) => !activeVlcode || r[filePkCol] === activeVlcode || r[filePkCol] === '')
         .map(({ i }) => i);
 
   const visibleHeaders = isMasterFile
     ? headers
     : isVillageScoped
-      ? headers.filter((h) => h !== VL_CODE && h !== VL_NAME)
+      ? headers.filter((h) => !protectedHeaders.has(h))
       : headers;
 
   // ── master view: group columns by file, optionally filter ─────────────────
@@ -1151,7 +1225,7 @@ export default function AdminPage() {
                         <tr className="bg-slate-800 text-white">
                           <th className="w-10 px-3 py-2.5 text-[10px] font-semibold text-slate-400">#</th>
                           {visibleHeaders.map((h) => {
-                            const isProtected = h === VL_CODE || h === VL_NAME;
+                            const isProtected = protectedHeaders.has(h);
                             return (
                               <th key={h} className="group whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide">
                                 <div className="flex items-center gap-1.5">
@@ -1243,7 +1317,7 @@ export default function AdminPage() {
                                     <LabelEditor
                                       name={h}
                                       display={toLabel(h)}
-                                      disabled={h === VL_CODE || h === VL_NAME}
+                                      disabled={protectedHeaders.has(h)}
                                       onRename={(newName) => handleRenameColumn(h, newName)}
                                       onDelete={() => handleDeleteColumn(h)}
                                     />
@@ -1412,3 +1486,4 @@ export default function AdminPage() {
     </div>
   );
 }
+
