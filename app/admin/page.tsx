@@ -1068,12 +1068,12 @@ export default function AdminPage() {
                                 <div key={h} className="grid gap-2 px-4 py-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
                                   <div className="flex min-w-0 items-center gap-2">
                                     <span className="truncate text-[11px] font-semibold uppercase text-slate-500">{toLabel(h)}</span>
-                                    {visIdx === 0 && (
+                                    {(row[h] || '').trim() !== '' && (
                                       <button
                                         type="button"
-                                        onClick={() => handleDeleteColumn(h)}
-                                        title={`Delete column "${h}" from ALL villages — not just this cell`}
-                                        aria-label={`Delete column ${h}`}
+                                        onClick={() => handleCellChange(realIdx, h, '')}
+                                        title={`Clear this village's value for "${h}"`}
+                                        aria-label={`Clear ${h} for this village`}
                                         className="flex h-5 w-5 items-center justify-center rounded-full border border-red-200 text-[11px] font-bold leading-none text-red-400 hover:bg-red-50 hover:text-red-700"
                                       >
                                         ×
