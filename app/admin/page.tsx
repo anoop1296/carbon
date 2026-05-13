@@ -234,6 +234,41 @@ export default function AdminPage() {
   const [showAddCol, setShowAddCol] = useState(false);
   const [newColName, setNewColName] = useState('');
   const [newColCategory, setNewColCategory] = useState<'before' | 'after' | null>(null);
+  // Columns the user just added — kept visible in the card view even when their
+  // value is empty so the user has somewhere to type. Scoped per file + per
+  // village so each village only shows the columns IT added. Persisted in
+  // localStorage so a full browser refresh doesn't wipe pending fields.
+  const PENDING_KEY_STORAGE = 'admin:pendingCols:v2';
+  const [pendingMap, setPendingMap] = useState<Record<string, string[]>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem(PENDING_KEY_STORAGE);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try { window.localStorage.setItem(PENDING_KEY_STORAGE, JSON.stringify(pendingMap)); } catch { /* ignore */ }
+  }, [pendingMap]);
+  const pendingKey = `${activeFile}::${activeVlcode}`;
+  const pendingCols = new Set(pendingMap[pendingKey] || []);
+  const addPendingCol = (col: string) => {
+    setPendingMap(prev => {
+      const existing = prev[pendingKey] || [];
+      if (existing.includes(col)) return prev;
+      return { ...prev, [pendingKey]: [...existing, col] };
+    });
+  };
+  const removePendingCol = (col: string) => {
+    setPendingMap(prev => {
+      const existing = prev[pendingKey];
+      if (!existing || !existing.includes(col)) return prev;
+      const next = existing.filter(c => c !== col);
+      return { ...prev, [pendingKey]: next };
+    });
+  };
 
   // csv upload (per-file)
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -526,6 +561,7 @@ export default function AdminPage() {
         setRows(d.rows);
         setHeaders(d.headers);
       }
+      addPendingCol(col);
       setNewColName('');
       setNewColCategory(null);
       setShowAddCol(false);
@@ -1029,7 +1065,19 @@ export default function AdminPage() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-slate-800">{activeFile}</span>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                    {loading ? '…' : `${visibleRows.length} row${visibleRows.length !== 1 ? 's' : ''} · ${visibleHeaders.length} col${visibleHeaders.length !== 1 ? 's' : ''}`}
+                    {loading ? '…' : (() => {
+                      // For non-master files in card view we only render headers
+                      // that this village has a value for (plus pending ones).
+                      // Reflect that filtered count in the toolbar so users don't
+                      // see "8 cols" when only 7 actually show up.
+                      const shownColCount = isMasterFile
+                        ? visibleHeaders.length
+                        : visibleRows.reduce((max, row) => {
+                            const c = visibleHeaders.filter(h => (row[h] || '').trim() !== '' || pendingCols.has(h)).length;
+                            return Math.max(max, c);
+                          }, 0);
+                      return `${visibleRows.length} row${visibleRows.length !== 1 ? 's' : ''} · ${shownColCount} col${shownColCount !== 1 ? 's' : ''}`;
+                    })()}
                   </span>
                   {!isMasterFile && activeVillage && (
                     <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
@@ -1175,10 +1223,21 @@ export default function AdminPage() {
                     <div className="space-y-4 p-4">
                       {visibleRows.map((row, visIdx) => {
                         const realIdx = visibleRowIndices[visIdx];
+                        // Per-village filter: show only fields this village has a
+                        // value for, plus any columns the user just added in this
+                        // session (so they have somewhere to type the value).
+                        const cardHeaders = visibleHeaders.filter(h =>
+                          (row[h] || '').trim() !== '' || pendingCols.has(h)
+                        );
                         return (
                           <section key={`${activeFile}-${realIdx}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                             <div className="divide-y divide-slate-100">
-                              {visibleHeaders.map((h) => (
+                              {cardHeaders.length === 0 && (
+                                <div className="px-4 py-6 text-center text-xs text-slate-400">
+                                  No data for this village yet — click <span className="font-semibold">+ Column</span> to add a field.
+                                </div>
+                              )}
+                              {cardHeaders.map((h) => (
                                 <div key={h} className="grid gap-2 px-4 py-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
                                   <div className="flex min-w-0 items-center gap-2">
                                     <LabelEditor
