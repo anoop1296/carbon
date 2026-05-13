@@ -1,5 +1,6 @@
 // Reads interventions.csv — fully dynamic, all non-identity columns returned as-is.
-// Sector and intervention are derived by splitting on first underscore.
+// Intervention name = exact column name from admin (underscores rendered as spaces).
+// Sector = first underscore-separated segment if present, else 'General'.
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { readCSV } from '@/lib/csvParser';
@@ -21,8 +22,8 @@ export async function GET(req: Request) {
       for (const [col, val] of Object.entries(row)) {
         if (identity.has(col)) continue;
         const idx          = col.indexOf('_');
-        const sector       = idx !== -1 ? col.slice(0, idx) : col;
-        const intervention = idx !== -1 ? col.slice(idx + 1).replace(/_/g, ' ').trim() : col;
+        const sector       = idx > 0 ? col.slice(0, idx) : 'General';
+        const intervention = col.replace(/_/g, ' ').trim();
         data.push({
           [pkCol]:              row[pkCol],
           [nameCol]:            row[nameCol],

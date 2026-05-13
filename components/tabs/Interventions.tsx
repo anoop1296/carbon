@@ -51,21 +51,22 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
   const filtered = selSector ? items.filter(r => r.sector === selSector) : items;
 
   const plotData = [{
-    x: filtered.map(r => trunc(r.intervention || 'Unknown', narrow ? 10 : 16)),
+    x: filtered.map(r => trunc(r.intervention || 'Unknown', narrow ? 14 : 24)),
     y: filtered.map(r => toNum(r[co2Key]) / 1000),
+    customdata: filtered.map(r => r.intervention || 'Unknown'),
     type: 'bar', name: 'CO₂ Reduction',
     marker: {
       color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar),
       line:  { color: filtered.map(r => COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length].bar), width: 0 },
     },
-    hovertemplate: '<b>%{x}</b><br>%{y:.3f} t/yr<extra></extra>',
+    hovertemplate: '<b>%{customdata}</b><br>%{y:.3f} t/yr<extra></extra>',
   }];
 
   const layout = {
     paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#ffffff',
-    margin: { l: narrow ? 42 : 56, r: 12, t: 12, b: narrow ? 80 : 96 },
+    margin: { l: narrow ? 42 : 56, r: 12, t: 12, b: narrow ? 100 : 130 },
     bargap: 0.3, hovermode: 'closest', showlegend: false,
-    xaxis: { tickangle: -30, automargin: true, tickfont: { color: '#6b6860', size: narrow ? 9 : 10 }, gridcolor: '#f0ede8', linecolor: '#e4e2dd' },
+    xaxis: { tickangle: -35, automargin: true, tickfont: { color: '#6b6860', size: narrow ? 9 : 10 }, gridcolor: '#f0ede8', linecolor: '#e4e2dd' },
     yaxis: { title: { text: 'CO₂ Reduction (t/yr)', font: { color: '#6b6860', size: 11 } }, tickfont: { color: '#6b6860', size: 10 }, gridcolor: '#f0ede8', zeroline: true, zerolinecolor: '#e4e2dd' },
     font: { family: 'system-ui, sans-serif', color: '#1a1a1a' },
     autosize: true,
