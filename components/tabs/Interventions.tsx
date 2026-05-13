@@ -18,7 +18,7 @@ const COLORS = [
   { bar: '#d06010', pill: 'bg-[#fef4ec] text-[#904008] border-[#f0c090]', card: 'border-[#f0c090] bg-[#fefaf4]', txt: '#904008' },
 ];
 
-const IDENTITY = new Set(['vlcode', 'village_name', 'sector', 'intervention', 'column']);
+const META_KEYS = new Set(['sector', 'intervention', 'column']);
 
 function toNum(v: string) { const n = parseFloat(v || '0'); return isFinite(n) ? n : 0; }
 function trunc(s: string, n = 18) { return s.length > n ? s.slice(0, n) + '…' : s; }
@@ -119,7 +119,7 @@ function InterventionsChart({ rows }: { rows: ReductionRow[] }) {
           <div className="space-y-2">
             {filtered.map((r, i) => {
               const c      = COLORS[(sectorIdx.get(r.sector) ?? 0) % COLORS.length];
-              const extras = Object.entries(r).filter(([k]) => !IDENTITY.has(k) && k !== co2Key && r[k]?.trim());
+              const extras = Object.entries(r).filter(([k, v]) => !META_KEYS.has(k) && k !== co2Key && k !== r.column && (v || '').trim() && !/^vlcode$|^village_name$|^village_code$/i.test(k));
               return (
                 <div key={i} className={`overflow-hidden rounded-xl border p-4 ${c.card}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -161,16 +161,33 @@ function Spinner() {
 export default function Interventions({ vlcode }: { vlcode: string }) {
   const [rows, setRows]       = useState<ReductionRow[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!vlcode) return;
+    let cancelled = false;
     setLoading(true);
-    fetch(`/api/reductions?vlcode=${vlcode}`, { cache: 'no-store' })
+    fetch(`/api/reductions?vlcode=${vlcode}&_=${reloadKey}`, { cache: 'no-store' })
       .then(r => r.json())
-      .then(d => setRows(d.data || []))
-      .finally(() => setLoading(false));
-  }, [vlcode]);
+      .then(d => { if (!cancelled) setRows(d.data || []); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [vlcode, reloadKey]);
 
   if (loading) return <Spinner />;
-  return <InterventionsChart rows={rows || []} />;
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setReloadKey(k => k + 1)}
+          className="rounded-lg border border-[#e4e2dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#6b6860] hover:border-[#1a1a1a] hover:text-[#1a1a1a]"
+          title="Refresh interventions data"
+        >
+          ↻ Refresh
+        </button>
+      </div>
+      <InterventionsChart rows={rows || []} />
+    </div>
+  );
 }

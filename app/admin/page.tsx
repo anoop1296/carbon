@@ -401,7 +401,14 @@ export default function AdminPage() {
     setSaving(true);
     try {
       if (rows.length === 0) {
-        const d = await apiPost(activeFile, { [col]: '' });
+        const seedRow: CsvRow = { [col]: '' };
+        if (!isMasterFile && activeVillage) {
+          const pk   = activeVillage[VL_CODE] || '';
+          const name = activeVillage[VL_NAME] || '';
+          if (pk)   seedRow[VL_CODE] = pk;
+          if (name) seedRow[VL_NAME] = name;
+        }
+        const d = await apiPost(activeFile, seedRow);
         setRows(d.rows);
         setHeaders(d.headers);
       } else {
@@ -412,7 +419,7 @@ export default function AdminPage() {
       setNewColName('');
       setNewColCategory(null);
       setShowAddCol(false);
-      showToast('ok', `Column "${col}" added.`);
+      showToast('ok', `Column "${col}" added — click the cell to enter a value.`);
     } catch (e) {
       showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
     } finally {
@@ -466,7 +473,8 @@ export default function AdminPage() {
     if (col === VL_CODE || col === VL_NAME) {
       showToast('err', `Cannot delete primary key or name column.`); return;
     }
-    if (!confirm(`Delete column "${col}" from "${activeFile}"?\n\nThis will remove this column from ALL rows permanently.`)) return;
+    const msg = `⚠️ DELETE COLUMN — NOT just this cell.\n\nColumn: "${col}"\nFile:   "${activeFile}"\n\nThis removes "${col}" from ALL villages permanently.\nIf you only want to clear this village's value, click the value and delete its text instead.\n\nProceed?`;
+    if (!confirm(msg)) return;
     setSaving(true);
     try {
       const d = await apiDeleteCol(activeFile, col);
@@ -911,10 +919,11 @@ export default function AdminPage() {
                   >
                     + Column
                   </button>
-                  {isMasterFile && (
+                  {(isMasterFile || activeVillage) && (
                     <button
                       onClick={handleAddRow}
                       disabled={saving}
+                      title={isMasterFile ? 'Add a new row' : `Add a row for ${activeVillage?.[VL_NAME] || 'this village'}`}
                       className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                     >
                       + Row
@@ -963,7 +972,7 @@ export default function AdminPage() {
                                     <button
                                       type="button"
                                       onClick={() => handleDeleteColumn(h)}
-                                      title={`Delete column "${h}"`}
+                                      title={`Delete column "${h}" from ALL rows`}
                                       className="hidden rounded px-1 py-0.5 text-[9px] font-bold text-red-300 opacity-0 transition hover:bg-red-800 hover:text-red-100 group-hover:block group-hover:opacity-100"
                                     >
                                       x
@@ -1022,33 +1031,28 @@ export default function AdminPage() {
                         const realIdx = visibleRowIndices[visIdx];
                         return (
                           <section key={`${activeFile}-${realIdx}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                            <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-emerald-100 text-[11px] font-bold text-emerald-700">
-                                  {visIdx + 1}
-                                </span>
-                                <span className="truncate text-xs font-semibold text-slate-700">{activeFile}</span>
-                              </div>
-                              <button
-                                onClick={() => handleDeleteRow(realIdx)}
-                                className="rounded border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-100"
-                              >
-                                Delete
-                              </button>
+                            <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-emerald-100 text-[11px] font-bold text-emerald-700">
+                                {visIdx + 1}
+                              </span>
+                              <span className="truncate text-xs font-semibold text-slate-700">{activeFile}</span>
                             </div>
                             <div className="divide-y divide-slate-100">
                               {visibleHeaders.map((h) => (
                                 <div key={h} className="grid gap-2 px-4 py-3 sm:grid-cols-[220px_minmax(0,1fr)] sm:items-center">
                                   <div className="flex min-w-0 items-center gap-2">
                                     <span className="truncate text-[11px] font-semibold uppercase text-slate-500">{toLabel(h)}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteColumn(h)}
-                                      title={`Delete column "${h}"`}
-                                      className="rounded px-1.5 py-0.5 text-[10px] font-bold text-red-300 hover:bg-red-50 hover:text-red-600"
-                                    >
-                                      x
-                                    </button>
+                                    {visIdx === 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteColumn(h)}
+                                        title={`Delete column "${h}" from ALL villages — not just this cell`}
+                                        aria-label={`Delete column ${h}`}
+                                        className="flex h-5 w-5 items-center justify-center rounded-full border border-red-200 text-[11px] font-bold leading-none text-red-400 hover:bg-red-50 hover:text-red-700"
+                                      >
+                                        ×
+                                      </button>
+                                    )}
                                   </div>
                                   <EditCell
                                     value={row[h] || ''}
