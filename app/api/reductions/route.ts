@@ -18,12 +18,14 @@ export async function GET(req: Request) {
     const filtered = pkFilter ? rows.filter(r => r[pkCol] === pkFilter) : rows;
     const data: Record<string, string>[] = [];
 
+    const titleCase = (s: string) => s.replace(/\b\p{L}/gu, c => c.toUpperCase());
+
     for (const row of filtered) {
       for (const [col, val] of Object.entries(row)) {
         if (identity.has(col)) continue;
         const idx          = col.indexOf('_');
-        const sector       = idx > 0 ? col.slice(0, idx) : 'General';
-        const intervention = col.replace(/_/g, ' ').trim();
+        const sector       = titleCase(idx > 0 ? col.slice(0, idx) : 'General');
+        const intervention = titleCase(col.replace(/_/g, ' ').trim());
         data.push({
           [pkCol]:              row[pkCol],
           [nameCol]:            row[nameCol],
