@@ -330,6 +330,9 @@ export default function AdminPage() {
   const masterUploadRef = useRef<HTMLInputElement>(null);
   const [masterUploading, setMasterUploading] = useState(false);
 
+  // sync Village.csv → Monthly_Activity_Wide.csv
+  const [syncingMonthly, setSyncingMonthly] = useState(false);
+
   // delete-village confirm
   const [confirmDeleteVl, setConfirmDeleteVl] = useState(false);
 
@@ -895,6 +898,25 @@ export default function AdminPage() {
     }
   }
 
+  // ── sync Village.csv data into Monthly_Activity_Wide.csv ──────────────────
+  async function handleSyncMonthly() {
+    if (!confirm('Sync Village.csv data into Monthly Activity Wide?\n\nElectricity, Firewood, LPG, Livestock, Petrol, Solid Waste and Vehicles will be copied for every village (existing rows are updated).')) return;
+
+    setSyncingMonthly(true);
+    try {
+      const res = await fetch('/api/admin/sync-monthly', { method: 'POST' });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Sync failed.');
+      showToast('ok', d.message || `Synced ${d.syncedVillages} village(s).`);
+      if (isMasterView) await loadMasterView();
+      else await loadFile(activeFile);
+    } catch (err) {
+      showToast('err', normalizeError(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSyncingMonthly(false);
+    }
+  }
+
   async function handleLogout() {
     setLoggingOut(true);
     try {
@@ -1074,6 +1096,16 @@ export default function AdminPage() {
             </button>
             <p className="text-[10px] text-slate-400 leading-snug">
               Fill the template and upload — data goes into all CSVs automatically.
+            </p>
+            <button
+              onClick={handleSyncMonthly}
+              disabled={syncingMonthly}
+              className="flex w-full items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-50 transition disabled:opacity-50"
+            >
+              <span>⟳</span> {syncingMonthly ? 'Syncing…' : 'Sync → Monthly Wide'}
+            </button>
+            <p className="text-[10px] text-slate-400 leading-snug">
+              Copy Village.csv energy/livestock/waste data into Monthly Activity Wide.
             </p>
           </div>
 

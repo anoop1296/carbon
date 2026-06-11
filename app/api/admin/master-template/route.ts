@@ -4,8 +4,9 @@ import { listCSVFiles, readCSV, stringifyCSV } from '@/lib/csvParser';
 
 export const dynamic = 'force-dynamic';
 
-// Files that are global (not per-village) — excluded from the master template
-const GLOBAL_FILES = new Set(['Emission_Factors.csv', 'Monthly_Activity_Wide.csv']);
+// Files that are global (not per-village) — excluded from the master template.
+// Monthly_Activity_Wide.csv is per-village, so it stays in the template.
+const GLOBAL_FILES = new Set(['Emission_Factors.csv']);
 
 export async function GET() {
   try {

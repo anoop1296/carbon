@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAdminSession, isAdminAuthError } from '@/lib/adminAuth';
-import { listCSVFiles, readCSV, updateCSVRow, CsvRow } from '@/lib/csvParser';
+import { listCSVFiles, readCSV, updateCSVRow, appendCSVRow, CsvRow } from '@/lib/csvParser';
 
 export const dynamic = 'force-dynamic';
 
@@ -155,11 +155,28 @@ export async function PUT(req: Request) {
     const targetFile = filename === '__id__' ? 'Village.csv' : filename;
 
     const csv = await readCSV(targetFile);
-    const pkCol = csv.headers[0] ?? 'vlcode';
+    const pkCol   = csv.headers[0] ?? 'vlcode';
+    const nameCol = csv.headers[1] ?? 'village_name';
     const rowIndex = csv.rows.findIndex(r => (r[pkCol] ?? '').trim() === vlcode.trim());
 
     if (rowIndex === -1) {
-      return NextResponse.json({ success: false, error: `Village "${vlcode}" not found in ${targetFile}.` }, { status: 404 });
+      // Village has no row in this file yet (e.g. a new village whose
+      // Monthly_Activity_Wide row was never created). Create it so the edit
+      // is persisted instead of being silently dropped.
+      let villageName = '';
+      try {
+        const village = await readCSV('Village.csv');
+        const vPk   = village.headers[0] ?? 'vlcode';
+        const vName = village.headers[1] ?? 'village_name';
+        villageName = (village.rows.find(r => (r[vPk] ?? '').trim() === vlcode.trim())?.[vName] ?? '').trim();
+      } catch {
+        // Village.csv missing or unreadable — fall back to empty name.
+      }
+
+      const newRow: CsvRow = { [pkCol]: vlcode, [nameCol]: villageName, [colName]: value };
+      await appendCSVRow(targetFile, newRow);
+
+      return NextResponse.json({ success: true, message: `Created row for "${vlcode}" and set ${colName} in ${targetFile}.` });
     }
 
     const updatedRow = { ...csv.rows[rowIndex], [colName]: value };

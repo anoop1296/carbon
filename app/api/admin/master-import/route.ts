@@ -71,7 +71,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'Uploaded CSV has no data rows.' }, { status: 400 });
     }
 
-    const GLOBAL_FILES = new Set(['Emission_Factors.csv', 'Monthly_Activity_Wide.csv']);
+    // Monthly_Activity_Wide.csv is per-village, so it participates in distribution.
+    // Only Emission_Factors.csv is truly global.
+    const GLOBAL_FILES = new Set(['Emission_Factors.csv']);
     const allFiles = (await listCSVFiles()).filter(f => !GLOBAL_FILES.has(f));
 
     const results: { filename: string; addedRows: number }[] = [];
