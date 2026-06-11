@@ -824,6 +824,24 @@ export default function AdminPage() {
     }
   }
 
+  // ── delete column from master view ────────────────────────────────────────
+  // The master view shows columns from many files at once, so we delete from
+  // the specific file that owns the column (not the active file).
+  async function handleDeleteMasterColumn(file: string, col: string) {
+    const msg = `⚠️ DELETE COLUMN — NOT just this cell.\n\nColumn: "${col}"\nFile:   "${file}"\n\nThis removes "${col}" from ALL villages permanently.\n\nProceed?`;
+    if (!confirm(msg)) return;
+    setSaving(true);
+    try {
+      await apiDeleteCol(file, col);
+      showToast('ok', `Column "${col}" deleted.`);
+      await loadMasterView();
+    } catch (e) {
+      showToast('err', normalizeError(e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // ── upload CSV ────────────────────────────────────────────────────────────
   async function handleUploadCSV(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1205,7 +1223,7 @@ export default function AdminPage() {
                           const { prefix, label } = parseColPrefix(col.col);
                           return (
                             <th key={col.key}
-                              className={`whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              className={`group/col whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide ${
                                 i === 0 || (i > 0 && filteredMasterCols[i - 1]?.file !== col.file && !col.isIdentity)
                                   ? 'border-l border-slate-600'
                                   : ''
@@ -1218,7 +1236,20 @@ export default function AdminPage() {
                                     {prefix}
                                   </span>
                                 )}
-                                <span>{label}</span>
+                                <span className="flex items-center gap-1.5">
+                                  {label}
+                                  {!col.isIdentity && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteMasterColumn(col.file, col.col)}
+                                      disabled={saving}
+                                      title={`Delete column "${col.col}" from ${col.file} (ALL villages)`}
+                                      className="rounded px-1 text-[11px] font-black leading-none text-red-300 opacity-0 transition hover:bg-red-900 hover:text-red-100 group-hover/col:opacity-100 disabled:opacity-30"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </span>
                               </div>
                             </th>
                           );
