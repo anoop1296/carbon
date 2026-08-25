@@ -78,7 +78,7 @@ function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
         <div className="rounded-xl border border-[#f4b896] bg-[#fff0e8] px-5 py-2.5 text-center">
           <p className="text-[9px] font-bold uppercase tracking-widest text-[#b05010]">Total / Year</p>
           <p className="mt-0.5 text-2xl font-black text-[#e2711d]">{(total / 1000).toFixed(1)}</p>
-          <p className="text-[10px] text-[#b05010]">t CO₂e</p>
+          <p className="text-[10px] text-[#b05010]">tonne CO₂e</p>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
                       style={{ background: c.bg, borderColor: c.border, color: c.text }}>{item.sector}</span>
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1a1a1a]">{short(item.label, 36)}</span>
                     <span className="shrink-0 text-sm font-black" style={{ color: c.text }}>{((item.value / total) * 100).toFixed(1)}%</span>
-                    <span className="shrink-0 text-xs text-[#6b6860]">{fmtT(item.value)} t</span>
+                    <span className="shrink-0 text-xs text-[#6b6860]">{fmtT(item.value)} tonne</span>
                   </div>
                   <div className="mt-3 h-2 rounded-full bg-[#f4f2ee]">
                     <div className="h-2 rounded-full transition-all duration-500"
@@ -157,7 +157,7 @@ function EmissionsChart({ rows }: { rows: EmissionRow[] | null }) {
                     style={{ background: '#fff', borderColor: c.border, color: c.text }}>{sel.sector}</span>
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     {[
-                      { l: 'CO₂ / yr', v: `${fmtT(sel.value)} t` },
+                      { l: 'CO₂ / yr', v: `${fmtT(sel.value)} tonne` },
                       { l: 'Share',    v: `${((sel.value / total) * 100).toFixed(1)}%` },
                       { l: 'Rank',     v: `#${visible.findIndex(x => x.label === sel.label) + 1}` },
                       { l: 'kg',       v: Math.round(sel.value).toLocaleString() },
